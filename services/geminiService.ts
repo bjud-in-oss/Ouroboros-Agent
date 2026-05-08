@@ -7,7 +7,7 @@ const ai = new GoogleGenAI({ apiKey });
 
 // Define the interface for a parsed tool request
 type ToolRequest = 
-  | { tool: 'createFile'; args: { name: string; content: string; mimeType?: string; } }
+  | { tool: 'createContextCapsule'; args: { title: string; content: string; targetProjectId: string; } }
   | { tool: 'readContextCapsule'; args: { fileId: string; } };
 
 const memoryUpdateSchema: Schema = {
@@ -136,13 +136,13 @@ export const processInteraction = async (
  --- TOOL EXECUTION PROTOCOL (CRITICAL) ---
  You have NO direct file access. You cannot "just create" a file by describing it.
  To perform an action (like creating a file), you MUST output a single JSON block strictly following this format INSIDE your 'text_response':
-  :::TOOL_REQUEST {"tool": "createFile", "args": {"name": "filename.md", "content": "# File Content Here"}} :::
+  :::TOOL_REQUEST {"tool": "createContextCapsule", "args": {"title": "filename.md", "content": "# File Content Here", "targetProjectId": "proj-123"}} :::
   RULES:
  1. IF you want to save a spec, log, or code file, use the tool.
  2. DO NOT say "I will create the file...". JUST output the JSON block.
  3. If you do not output the block, the file is NOT created.
   Supported Tools:
- 1. createFile: args: { name: string, content: string } (Default mimeType is text/markdown)
+ 1. createContextCapsule: args: { title: string, content: string, targetProjectId: string }
  2. readContextCapsule: args: { fileId: string }
 
 
@@ -216,24 +216,31 @@ export const processInteraction = async (
 
        if (toolRequest) {
            try {
-               if (toolRequest.tool === 'createFile') {
-                   console.log(`Executing Tool: createFile (${toolRequest.args.name})`);
+               if (toolRequest.tool === 'createContextCapsule') {
+                   console.log(`Executing Tool: createContextCapsule (${toolRequest.args.title})`);
                   
                    // 1. Resolve Root Folder
                    const folderId = await ensureFolderExists();
                   
                    // 2. Execute Creation
                    const fileId = await createFile(
-                       toolRequest.args.name,
+                       toolRequest.args.title,
                        toolRequest.args.content,
                        folderId,
-                       toolRequest.args.mimeType || 'text/markdown'
+                       'text/markdown'
                    );
 
-                   // 3. Feedback Loop (Inject result back into history/focus)
-                   const successMsg = `\n\n[SYSTEM: Tool 'createFile' executed successfully. File ID: ${fileId}]`;
+                   // 3. Atomic Memory Binding
+                   const targetProjectId = toolRequest.args.targetProjectId;
+                   const projectIndex = finalMemory.active_projects.findIndex((p: any) => p.id === targetProjectId);
+                   if (projectIndex !== -1) {
+                       finalMemory.active_projects[projectIndex].detailed_spec_file_id = fileId;
+                   }
+
+                   // 4. Feedback Loop (Inject result back into history/focus)
+                   const successMsg = `\n\n[SYSTEM: Tool 'createContextCapsule' executed successfully. File ID: ${fileId}. BOUND TO PROJECT: ${targetProjectId}]`;
                    finalResponseText += successMsg;
-                   finalFocus.chain_of_thought.push(`Executed tool 'createFile' for '${toolRequest.args.name}'. ID: ${fileId}`);
+                   finalFocus.chain_of_thought.push(`Executed tool 'createContextCapsule' for '${toolRequest.args.title}'. ID: ${fileId}. Bound to: ${targetProjectId}`);
                } else if (toolRequest.tool === 'readContextCapsule') {
                    console.log(`Executing Tool: readContextCapsule (${toolRequest.args.fileId})`);
                    const content = await readFile(toolRequest.args.fileId);
