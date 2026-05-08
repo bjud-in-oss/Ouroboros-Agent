@@ -243,7 +243,12 @@ export const processInteraction = async (
                    finalFocus.chain_of_thought.push(`Executed tool 'createContextCapsule' for '${toolRequest.args.title}'. ID: ${fileId}. Bound to: ${targetProjectId}`);
                } else if (toolRequest.tool === 'readContextCapsule') {
                    console.log(`Executing Tool: readContextCapsule (${toolRequest.args.fileId})`);
-                   const content = await readFile(toolRequest.args.fileId);
+                   let content = await readFile(toolRequest.args.fileId);
+                   
+                   if (content.length > 15000) {
+                       content = content.substring(0, 15000) + "\n\n...[SYSTEM WARNING: FILE CONTENT TRUNCATED DUE TO COGNITIVE LIMITS. YOU HAVE RECEIVED THE FIRST 15K CHARACTERS. PLEASE REFINE AND SHORTEN THIS CAPSULE LATER USING YOUR TOOLS.]";
+                   }
+                   
                    const successMsg = `\n\n[SYSTEM: Tool 'readContextCapsule' executed successfully. Content:\n${content}\n]`;
                    finalResponseText += successMsg;
                    finalFocus.chain_of_thought.push(`Executed tool 'readContextCapsule' for file ID: ${toolRequest.args.fileId}`);
