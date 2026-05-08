@@ -6,14 +6,9 @@ const apiKey = process.env.API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
 
 // Define the interface for a parsed tool request
-interface ToolRequest {
- tool: 'createFile';
- args: {
-   name: string;
-   content: string;
-   mimeType?: string;
- };
-}
+type ToolRequest = 
+  | { tool: 'createFile'; args: { name: string; content: string; mimeType?: string; } }
+  | { tool: 'readContextCapsule'; args: { fileId: string; } };
 
 const memoryUpdateSchema: Schema = {
  type: Type.OBJECT,
@@ -130,29 +125,6 @@ export const processInteraction = async (
 
  const model = "gemini-3-flash-preview";
 
- // --- DYNAMIC RETRIEVAL LOGIC ---
- // Lazy load heavy context only if relevant to the current user prompt.
- let dynamicContext = "";
-  // Check active projects for detailed specs
- const relevantProjects = currentMemory.active_projects.filter(p =>
-     p.detailed_spec_file_id && userPrompt.toLowerCase().includes(p.name.toLowerCase())
- );
-
- if (relevantProjects.length > 0) {
-     console.log(`Dynamic Retrieval: Loading ${relevantProjects.length} spec(s)...`);
-     try {
-         const specs = await Promise.all(relevantProjects.map(async (p) => {
-             if (!p.detailed_spec_file_id) return "";
-             const content = await readFile(p.detailed_spec_file_id);
-             return `--- SPECIFICATION FOR PROJECT: ${p.name} ---\n${content}\n---------------------------------------`;
-         }));
-         dynamicContext = "\n\n=== DYNAMICALLY LOADED CONTEXT ===\n" + specs.join("\n");
-     } catch (err) {
-         console.error("Failed to load dynamic context:", err);
-         dynamicContext = "\n\n[System Warning: Failed to retrieve detailed project specs from Drive]";
-     }
- }
-
  const systemPrompt = `
  You are an autonomous AI agent operating under the "Drive-Augmented Ouroboros" architecture.
   CORE PRINCIPLE:
@@ -171,12 +143,13 @@ export const processInteraction = async (
  3. If you do not output the block, the file is NOT created.
   Supported Tools:
  1. createFile: args: { name: string, content: string } (Default mimeType is text/markdown)
+ 2. readContextCapsule: args: { fileId: string }
 
 
  NEW ARCHITECTURE: SAFE CONTEXT CAPSULES
  - Large text blocks (like project specifications) are stored in separate Markdown files on Drive.
  - You can see references to these files in 'active_projects' via the 'detailed_spec_file_id' field.
- - If the user asks about a specific project, the system will inject that file's content below.
+ - To read the details of a project, you MUST use the readContextCapsule tool with the fileId. Do NOT guess the contents.
 
 
  YOUR TASK:
@@ -192,9 +165,6 @@ export const processInteraction = async (
  ${JSON.stringify(currentMemory)}
   --- CURRENT_FOCUS.md (State) ---
  ${JSON.stringify(currentFocus)}
-
-
- ${dynamicContext}
  `;
 
 
@@ -236,37 +206,46 @@ export const processInteraction = async (
 
 
    if (match && match[1]) {
+       let toolRequest: ToolRequest | null = null;
        try {
-           const toolRequest: ToolRequest = JSON.parse(match[1]);
-          
-           if (toolRequest.tool === 'createFile') {
-               console.log(`Executing Tool: createFile (${toolRequest.args.name})`);
-              
-               // 1. Resolve Root Folder
-               const folderId = await ensureFolderExists();
-              
-               // 2. Execute Creation
-               const fileId = await createFile(
-                   toolRequest.args.name,
-                   toolRequest.args.content,
-                   folderId,
-                   toolRequest.args.mimeType || 'text/markdown'
-               );
-
-
-               // 3. Feedback Loop (Inject result back into history/focus)
-               const successMsg = `\n\n[SYSTEM: Tool 'createFile' executed successfully. File ID: ${fileId}]`;
-               finalResponseText += successMsg;
-               finalFocus.chain_of_thought.push(`Executed tool 'createFile' for '${toolRequest.args.name}'. ID: ${fileId}`);
-              
-               // Optional: Automatically update memory if the agent intended to link this file
-               // This is a heuristic: If the agent created a spec, it likely wants that ID in the project list.
-               // However, relying on the agent's next turn to formally adopt the ID is safer for now.
-           }
+           toolRequest = JSON.parse(match[1]);
        } catch (err: any) {
-           console.error("Tool Execution Failed:", err);
-           finalResponseText += `\n\n[SYSTEM ERROR: Tool execution failed. ${err.message}]`;
-           finalFocus.chain_of_thought.push(`Tool execution failed: ${err.message}`);
+           console.error("Tool Parse Failed:", err);
+           finalResponseText += "\n\n[SYSTEM WARNING: Tool Execution Failed. Invalid JSON format. Error parsing request. Do not apologize, just output the corrected :::TOOL_REQUEST::: block in your next turn.]";
+       }
+
+       if (toolRequest) {
+           try {
+               if (toolRequest.tool === 'createFile') {
+                   console.log(`Executing Tool: createFile (${toolRequest.args.name})`);
+                  
+                   // 1. Resolve Root Folder
+                   const folderId = await ensureFolderExists();
+                  
+                   // 2. Execute Creation
+                   const fileId = await createFile(
+                       toolRequest.args.name,
+                       toolRequest.args.content,
+                       folderId,
+                       toolRequest.args.mimeType || 'text/markdown'
+                   );
+
+                   // 3. Feedback Loop (Inject result back into history/focus)
+                   const successMsg = `\n\n[SYSTEM: Tool 'createFile' executed successfully. File ID: ${fileId}]`;
+                   finalResponseText += successMsg;
+                   finalFocus.chain_of_thought.push(`Executed tool 'createFile' for '${toolRequest.args.name}'. ID: ${fileId}`);
+               } else if (toolRequest.tool === 'readContextCapsule') {
+                   console.log(`Executing Tool: readContextCapsule (${toolRequest.args.fileId})`);
+                   const content = await readFile(toolRequest.args.fileId);
+                   const successMsg = `\n\n[SYSTEM: Tool 'readContextCapsule' executed successfully. Content:\n${content}\n]`;
+                   finalResponseText += successMsg;
+                   finalFocus.chain_of_thought.push(`Executed tool 'readContextCapsule' for file ID: ${toolRequest.args.fileId}`);
+               }
+           } catch (execErr: any) {
+               console.error("Tool Execution Failed:", execErr);
+               finalResponseText += `\n\n[SYSTEM ERROR: Tool execution failed. ${execErr.message}]`;
+               finalFocus.chain_of_thought.push(`Tool execution failed: ${execErr.message}`);
+           }
        }
    }
 
