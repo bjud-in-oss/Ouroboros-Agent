@@ -1,13 +1,33 @@
 import { GoogleGenAI, Type, Schema, Content } from "@google/genai";
 import { LongTermMemory, FocusLog } from "../types";
 import { readFile, createFile, ensureFolderExists, saveState } from "./driveService";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 
 export class MCPClientManager {
     // TODO (Phase 9.1): Implementera @modelcontextprotocol/sdk med SSEClientTransport.
     // Denna manager ska dynamiskt hämta verktyg från externa MCP-servrar 
     // och injicera dem i Geminis functionDeclarations.
+    public client: Client | null = null;
+
     constructor() {
         // Init logic here
+    }
+
+    async connect(url: string) {
+        console.log(`Connecting to MCP server at ${url}...`);
+        const transport = new SSEClientTransport(new URL(url));
+        this.client = new Client({
+            name: "ouroboros-mcp-client",
+            version: "1.0.0"
+        }, {
+            capabilities: {
+                tools: {}
+            }
+        });
+        
+        await this.client.connect(transport);
+        console.log(`Successfully connected to MCP server at ${url}.`);
     }
 }
 
@@ -57,7 +77,7 @@ export const processInteraction = async (
      throw new Error("API Key is missing. Please ensure process.env.API_KEY is configured.");
  }
 
- const model = "gemini-3-flash-preview";
+ const model = "gemini-3.1-flash-lite";
  const memoryState = JSON.parse(JSON.stringify(currentMemory));
 
  const systemInstruction = `
@@ -111,13 +131,15 @@ export const processInteraction = async (
  let finalFocus = currentFocus;
 
  for (let turn = 0; turn < 10; turn++) {
-    const response = await ai.models.generateContent({
-        model,
-        contents: history,
-        config: {
-            systemInstruction,
-            tools: [{
-                functionDeclarations: [
+    let response;
+    try {
+        response = await ai.models.generateContent({
+            model,
+            contents: history,
+            config: {
+                systemInstruction,
+                tools: [{
+                    functionDeclarations: [
                     {
                         name: "addLearnedTruth",
                         description: "Add a learned truth to memory.",
@@ -169,6 +191,16 @@ export const processInteraction = async (
             responseSchema: focusUpdateSchema
         }
     });
+    } catch (err: any) {
+        if (err.status === 429 || (err.message && (err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED')))) {
+            return {
+                response: "[SYSTEM HALT: Kognitiv överbelastning (API Rate Limit). Modellen behöver vila. Vänligen vänta en minut och försök igen.]",
+                newMemory: memoryState,
+                newFocus: currentFocus
+            };
+        }
+        throw err;
+    }
 
     if (response.functionCalls && response.functionCalls.length > 0) {
         if (response.candidates && response.candidates[0] && response.candidates[0].content) {
