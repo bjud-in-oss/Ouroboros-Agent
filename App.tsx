@@ -26,6 +26,7 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'memory' | 'focus'>('memory');
   const [isDriveConnected, setIsDriveConnected] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [systemInjection, setSystemInjection] = useState<string | null>(null);
   
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -65,7 +66,22 @@ const App: React.FC = () => {
       if (data) {
         setMemory(data.memory);
         setFocus(data.focus);
-        setMessages(prev => [...prev, { role: 'system', content: 'Memory loaded from Drive.', timestamp: Date.now() }]);
+        
+        // Immediately sync back to Drive with restored data
+        await driveService.saveState({
+          app_version: "1.0.0",
+          last_sync_timestamp: Date.now(),
+          memory: data.memory,
+          focus: data.focus
+        });
+
+        setSystemInjection('[SYSTEM: Memory restored successfully. Your 2.0 tools (Function Calling) remain active.]');
+        
+        setMessages(prev => [...prev, { 
+          role: 'system', 
+          content: 'Memory loaded from Drive.', 
+          timestamp: Date.now() 
+        }]);
       } else {
         setMessages(prev => [...prev, { role: 'system', content: 'No existing memory found on Drive. Using default state.', timestamp: Date.now() }]);
       }
@@ -136,7 +152,10 @@ const App: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const { response, newMemory, newFocus } = await processInteraction(input, memory, focus);
+      const fullPrompt = systemInjection ? `${input}\n\n${systemInjection}` : input;
+      if (systemInjection) setSystemInjection(null); // Clear after injection
+      
+      const { response, newMemory, newFocus } = await processInteraction(fullPrompt, memory, focus);
       
       setMemory(newMemory);
       setFocus(newFocus);

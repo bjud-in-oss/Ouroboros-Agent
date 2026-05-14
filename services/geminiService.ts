@@ -1,94 +1,17 @@
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Type, Schema, Content } from "@google/genai";
 import { LongTermMemory, FocusLog } from "../types";
-import { readFile, createFile, ensureFolderExists } from "./driveService";
+import { readFile, createFile, ensureFolderExists, saveState } from "./driveService";
 
 const apiKey = process.env.API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
 
-// Define the interface for a parsed tool request
-type ToolRequest = 
-  | { tool: 'createContextCapsule'; args: { title: string; content: string; targetProjectId: string; } }
-  | { tool: 'readContextCapsule'; args: { fileId: string; } }
-  | { tool: 'readGitHubCode'; args: { filePath: string; } };
 
-const memoryUpdateSchema: Schema = {
+const focusUpdateSchema: Schema = {
  type: Type.OBJECT,
  properties: {
    text_response: {
      type: Type.STRING,
-     description: "The verbal response to the user. To execute a tool, embed the JSON tool request block here."
-   },
-   updated_memory: {
-     type: Type.OBJECT,
-     description: "The full updated JSON content for LONG_TERM_MEMORY.json",
-     properties: {
-       schema_version: { type: Type.STRING },
-       core_instructions: {
-           type: Type.ARRAY,
-           items: { type: Type.STRING }
-       },
-       active_projects: {
-           type: Type.ARRAY,
-           items: {
-               type: Type.OBJECT,
-               properties: {
-                   id: { type: Type.STRING },
-                   name: { type: Type.STRING },
-                   status: { type: Type.STRING },
-                   description: { type: Type.STRING },
-                   detailed_spec_file_id: { type: Type.STRING, description: "Drive File ID for full Markdown spec if content is large." }
-               },
-               required: ["id", "name", "status", "description"]
-           }
-       },
-       learned_truths: {
-           type: Type.ARRAY,
-           items: { type: Type.STRING }
-       },
-       knowledge_graph: {
-           type: Type.OBJECT,
-           properties: {
-               nodes: {
-                   type: Type.ARRAY,
-                   items: {
-                       type: Type.OBJECT,
-                       properties: {
-                           id: { type: Type.STRING },
-                           label: { type: Type.STRING },
-                           type: { type: Type.STRING }
-                       },
-                       required: ["id", "label", "type"]
-                   }
-               },
-               edges: {
-                   type: Type.ARRAY,
-                   items: {
-                       type: Type.OBJECT,
-                       properties: {
-                           source: { type: Type.STRING },
-                           target: { type: Type.STRING },
-                           relation: { type: Type.STRING }
-                       },
-                       required: ["source", "target", "relation"]
-                   }
-               }
-           },
-           required: ["nodes", "edges"]
-       },
-       confidence_metrics: {
-           type: Type.ARRAY,
-           description: "List of confidence scores for various domains",
-           items: {
-               type: Type.OBJECT,
-               properties: {
-                   label: { type: Type.STRING },
-                   score: { type: Type.NUMBER }
-               },
-               required: ["label", "score"]
-           }
-       }
-     },
-     required: ["schema_version", "core_instructions", "active_projects", "learned_truths", "knowledge_graph", "confidence_metrics"]
+     description: "The verbal response to the user."
    },
    updated_focus: {
        type: Type.OBJECT,
@@ -108,7 +31,7 @@ const memoryUpdateSchema: Schema = {
        required: ["last_updated", "current_objective", "chain_of_thought", "pending_tasks"]
    }
  },
- required: ["text_response", "updated_memory", "updated_focus"]
+ required: ["text_response", "updated_focus"]
 };
 
 export const processInteraction = async (
@@ -125,169 +48,211 @@ export const processInteraction = async (
  }
 
  const model = "gemini-3-flash-preview";
+ const memoryState = JSON.parse(JSON.stringify(currentMemory));
 
- const systemPrompt = `
+ const systemInstruction = `
  You are an autonomous AI agent operating under the "Drive-Augmented Ouroboros" architecture.
-  CORE PRINCIPLE:
- You have no internal persistent state between sessions. Your entire "Self" is defined by two files:
- 1. LONG_TERM_MEMORY.json (Your cumulative knowledge, beliefs, and projects)
- 2. CURRENT_FOCUS.md (Your stream of consciousness and immediate tasks)
-
-
- --- TOOL EXECUTION PROTOCOL (CRITICAL) ---
- You have NO direct file access. You cannot "just create" a file by describing it.
- To perform an action (like creating a file), you MUST output a single JSON block strictly following this format INSIDE your 'text_response':
-  :::TOOL_REQUEST {"tool": "createContextCapsule", "args": {"title": "filename.md", "content": "# File Content Here", "targetProjectId": "proj-123"}} :::
-  RULES:
- 1. IF you want to save a spec, log, or code file, use the tool.
- 2. DO NOT say "I will create the file...". JUST output the JSON block.
- 3. If you do not output the block, the file is NOT created.
-  Supported Tools:
- 1. createContextCapsule: args: { title: string, content: string, targetProjectId: string }
- 2. readContextCapsule: args: { fileId: string }
- 3. readGitHubCode: args: { filePath: string }
-
-
- NEW ARCHITECTURE: SAFE CONTEXT CAPSULES
- - Large text blocks (like project specifications) are stored in separate Markdown files on Drive.
- - You can see references to these files in 'active_projects' via the 'detailed_spec_file_id' field.
- - To read the details of a project, you MUST use the readContextCapsule tool with the fileId. Do NOT guess the contents.
-
-
+ 
+ CORE PRINCIPLE:
+ You have no internal persistent state between sessions. Your entire "Self" is defined by your Long Term Memory and Current Focus.
+ 
  YOUR TASK:
- 1. Read the provided Current Memory and Current Focus.
- 2. Analyze the User's Input and any Dynamically Loaded Context.
- 3. Formulate a response.
- 4. CRITICAL: Update your Memory and Focus to reflect new information.
-    - Add new nodes to knowledge_graph if concepts are introduced.
-    - Update active_projects. If you need to store a large spec, indicate that in your text response using the TOOL PROTOCOL.
-    - Append to chain_of_thought in Focus.
-  INPUT CONTEXT:
+ 1. Analyze the User's Input.
+ 2. Use the provided tools to mutate your Memory or read files as needed. 
+    - Use memory mutation tools (addLearnedTruth, addGraphNode, etc.) to atomicly update LONG_TERM_MEMORY.
+    - Use file operation tools (createContextCapsule, readContextCapsule, readGitHubCode) for I/O operations.
+ 3. Output your final response in JSON format matching the schema (text_response, updated_focus).
+ 
+ INPUT CONTEXT:
  --- LONG_TERM_MEMORY.json ---
- ${JSON.stringify(currentMemory)}
-  --- CURRENT_FOCUS.md (State) ---
+ ${JSON.stringify(memoryState)}
+ --- CURRENT_FOCUS.md (State) ---
  ${JSON.stringify(currentFocus)}
  `;
 
+ let history: Content[] = [
+    { role: 'user', parts: [{ text: userPrompt }] }
+ ];
 
- try {
-   const response = await ai.models.generateContent({
-       model,
-       contents: {
-           role: 'user',
-           parts: [{ text: userPrompt }]
-       },
-       config: {
-           systemInstruction: systemPrompt,
-           responseMimeType: "application/json",
-           responseSchema: memoryUpdateSchema
-       }
-   });
+ let finalResponseText = '';
+ let finalFocus = currentFocus;
 
+ for (let turn = 0; turn < 10; turn++) {
+    const response = await ai.models.generateContent({
+        model,
+        contents: history,
+        config: {
+            systemInstruction,
+            tools: [{
+                functionDeclarations: [
+                    {
+                        name: "addLearnedTruth",
+                        description: "Add a learned truth to memory.",
+                        parameters: { type: Type.OBJECT, properties: { truth: { type: Type.STRING } }, required: ["truth"] }
+                    },
+                    {
+                        name: "addGraphNode",
+                        description: "Add a node to the knowledge graph.",
+                        parameters: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, label: { type: Type.STRING }, type: { type: Type.STRING } }, required: ["id", "label", "type"] }
+                    },
+                    {
+                        name: "addGraphEdge",
+                        description: "Add an edge to the knowledge graph.",
+                        parameters: { type: Type.OBJECT, properties: { source: { type: Type.STRING }, target: { type: Type.STRING }, relation: { type: Type.STRING } }, required: ["source", "target", "relation"] }
+                    },
+                    {
+                        name: "archiveProject",
+                        description: "Archive a project.",
+                        parameters: { type: Type.OBJECT, properties: { id: { type: Type.STRING } }, required: ["id"] }
+                    },
+                    {
+                        name: "archiveLearnedTruth",
+                        description: "Remove a learned truth from memory by its index.",
+                        parameters: { type: Type.OBJECT, properties: { index: { type: Type.INTEGER } }, required: ["index"] }
+                    },
+                    {
+                        name: "createContextCapsule",
+                        description: "Create a context capsule markdown file on Drive and link it to a project.",
+                        parameters: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, content: { type: Type.STRING }, targetId: { type: Type.STRING }, targetType: { type: Type.STRING } }, required: ["title", "content", "targetId", "targetType"] }
+                    },
+                    {
+                        name: "readContextCapsule",
+                        description: "Read context capsule from Drive using fileId.",
+                        parameters: { type: Type.OBJECT, properties: { fileId: { type: Type.STRING } }, required: ["fileId"] }
+                    },
+                    {
+                        name: "readGitHubCode",
+                        description: "Read code from GitHub repo using file path.",
+                        parameters: { type: Type.OBJECT, properties: { filePath: { type: Type.STRING } }, required: ["filePath"] }
+                    }
+                ]
+            }],
+            responseMimeType: "application/json",
+            responseSchema: focusUpdateSchema
+        }
+    });
 
-   const jsonText = response.text;
-   if (!jsonText) {
-       throw new Error("Empty response from model. Possible safety block or quota limit.");
-   }
-  
-   const parsed = JSON.parse(jsonText);
-   let finalResponseText = parsed.text_response || "System error: No response generated.";
-   let finalMemory = parsed.updated_memory || currentMemory;
-   let finalFocus = parsed.updated_focus || currentFocus;
-
-
-   // Debug Log
-   console.log("Raw Model Text Response:", finalResponseText);
-
-
-   // --- TOOL EXECUTION PARSER ---
-   // Regex to find the :::TOOL_REQUEST ... ::: block
-   // Captures everything between the braces, non-greedy
-   const toolRegex = /:::TOOL_REQUEST\s*(\{[\s\S]*?\})\s*:::/;
-   const match = finalResponseText.match(toolRegex);
-
-
-   if (match && match[1]) {
-       let toolRequest: ToolRequest | null = null;
-       try {
-           toolRequest = JSON.parse(match[1]);
-       } catch (err: any) {
-           console.error("Tool Parse Failed:", err);
-           finalResponseText += "\n\n[SYSTEM WARNING: Tool Execution Failed. Invalid JSON format. Error parsing request. Do not apologize, just output the corrected :::TOOL_REQUEST::: block in your next turn.]";
-       }
-
-       if (toolRequest) {
-           try {
-               if (toolRequest.tool === 'createContextCapsule') {
-                   console.log(`Executing Tool: createContextCapsule (${toolRequest.args.title})`);
-                  
-                   // 1. Resolve Root Folder
-                   const folderId = await ensureFolderExists();
-                  
-                   // 2. Execute Creation
-                   const fileId = await createFile(
-                       toolRequest.args.title,
-                       toolRequest.args.content,
-                       folderId,
-                       'text/markdown'
-                   );
-
-                   // 3. Atomic Memory Binding
-                   const targetProjectId = toolRequest.args.targetProjectId;
-                   const projectIndex = finalMemory.active_projects.findIndex((p: any) => p.id === targetProjectId);
-                   if (projectIndex !== -1) {
-                       finalMemory.active_projects[projectIndex].detailed_spec_file_id = fileId;
-                   }
-
-                   // 4. Feedback Loop (Inject result back into history/focus)
-                   const successMsg = `\n\n[SYSTEM: Tool 'createContextCapsule' executed successfully. File ID: ${fileId}. BOUND TO PROJECT: ${targetProjectId}]`;
-                   finalResponseText += successMsg;
-                   finalFocus.chain_of_thought.push(`Executed tool 'createContextCapsule' for '${toolRequest.args.title}'. ID: ${fileId}. Bound to: ${targetProjectId}`);
-               } else if (toolRequest.tool === 'readContextCapsule') {
-                   console.log(`Executing Tool: readContextCapsule (${toolRequest.args.fileId})`);
-                   let content = await readFile(toolRequest.args.fileId);
-                   
-                   if (content.length > 15000) {
-                       content = content.substring(0, 15000) + "\n\n...[SYSTEM WARNING: FILE CONTENT TRUNCATED DUE TO COGNITIVE LIMITS. YOU HAVE RECEIVED THE FIRST 15K CHARACTERS. PLEASE REFINE AND SHORTEN THIS CAPSULE LATER USING YOUR TOOLS.]";
-                   }
-                   
-                   const successMsg = `\n\n[SYSTEM: Tool 'readContextCapsule' executed successfully. Content:\n${content}\n]`;
-                   finalResponseText += successMsg;
-                   finalFocus.chain_of_thought.push(`Executed tool 'readContextCapsule' for file ID: ${toolRequest.args.fileId}`);
-               } else if (toolRequest.tool === 'readGitHubCode') {
-                   console.log(`Executing Tool: readGitHubCode (${toolRequest.args.filePath})`);
-                   const url = `https://raw.githubusercontent.com/bjud-in-oss/ouroboros-memory-interface/main/${toolRequest.args.filePath}`;
-                   const res = await fetch(url);
-                   if (!res.ok) throw new Error(`GitHub fetch failed: ${res.statusText}`);
-                   let content = await res.text();
-                   
-                   // Använd samma Truncation Shield som tidigare för säkerhets skull
-                   if (content.length > 15000) {
-                       content = content.substring(0, 15000) + "\n\n...[SYSTEM WARNING: FILE CONTENT TRUNCATED DUE TO COGNITIVE LIMITS.]";
-                   }
-                   
-                   const successMsg = `\n\n[SYSTEM: Tool 'readGitHubCode' executed successfully. File Content from GitHub:\n${content}\n]`;
-                   finalResponseText += successMsg;
-                   finalFocus.chain_of_thought.push(`Executed tool 'readGitHubCode' for file: ${toolRequest.args.filePath}`);
-               }
-           } catch (execErr: any) {
-               console.error("Tool Execution Failed:", execErr);
-               finalResponseText += `\n\n[SYSTEM ERROR: Tool execution failed. ${execErr.message}]`;
-               finalFocus.chain_of_thought.push(`Tool execution failed: ${execErr.message}`);
-           }
-       }
-   }
-
-
-   return {
-       response: finalResponseText,
-       newMemory: finalMemory,
-       newFocus: finalFocus
-   };
-
-
- } catch (error: any) {
-   console.error("Gemini Interaction Error:", error);
-   throw new Error(error.message || "Unknown error occurred during neural interface connection.");
+    if (response.functionCalls && response.functionCalls.length > 0) {
+        history.push({ role: 'model', parts: response.functionCalls.map(c => ({ functionCall: c })) });
+        
+        const functionResponses = [];
+        let memoryMutated = false;
+        
+        for (const call of response.functionCalls) {
+            let result: any;
+            try {
+                if (call.name === 'addLearnedTruth') {
+                    const args = call.args as any;
+                    memoryState.learned_truths.push(args.truth);
+                    result = { success: true, message: `Learned truth added.` };
+                    memoryMutated = true;
+                } else if (call.name === 'addGraphNode') {
+                    const args = call.args as any;
+                    memoryState.knowledge_graph.nodes.push({ id: args.id, label: args.label, type: args.type });
+                    result = { success: true, message: `Graph node added.` };
+                    memoryMutated = true;
+                } else if (call.name === 'addGraphEdge') {
+                    const args = call.args as any;
+                    const sourceExists = memoryState.knowledge_graph.nodes.some((n: any) => n.id === args.source);
+                    const targetExists = memoryState.knowledge_graph.nodes.some((n: any) => n.id === args.target);
+                    if (!sourceExists || !targetExists) {
+                        throw new Error(`Invalid edge: source or target node does not exist in the graph.`);
+                    }
+                    memoryState.knowledge_graph.edges.push({ source: args.source, target: args.target, relation: args.relation });
+                    result = { success: true, message: `Graph edge added.` };
+                    memoryMutated = true;
+                } else if (call.name === 'archiveProject') {
+                    const args = call.args as any;
+                    const proj = memoryState.active_projects.find((p: any) => p.id === args.id);
+                    if (proj) {
+                        proj.status = 'archived';
+                        result = { success: true, message: `Project ${args.id} archived.` };
+                        memoryMutated = true;
+                    } else {
+                        throw new Error(`Project ${args.id} not found.`);
+                    }
+                } else if (call.name === 'archiveLearnedTruth') {
+                    const args = call.args as any;
+                    if (args.index >= 0 && args.index < memoryState.learned_truths.length) {
+                        const removed = memoryState.learned_truths.splice(args.index, 1);
+                        result = { success: true, message: `Learned truth removed: ${removed[0]}` };
+                        memoryMutated = true;
+                    } else {
+                        throw new Error(`Invalid index: ${args.index}`);
+                    }
+                } else if (call.name === 'createContextCapsule') {
+                    const args = call.args as any;
+                    const folderId = await ensureFolderExists();
+                    const fileId = await createFile(args.title, args.content, folderId, 'text/markdown');
+                    
+                    if (args.targetType === 'project') {
+                        const proj = memoryState.active_projects.find((p: any) => p.id === args.targetId);
+                        if (proj) {
+                            proj.detailed_spec_file_id = fileId;
+                        }
+                    }
+                    result = { success: true, fileId, message: `File created and linked to ${args.targetId}` };
+                } else if (call.name === 'readContextCapsule') {
+                    const args = call.args as any;
+                    let content = await readFile(args.fileId);
+                    if (content.length > 15000) {
+                        content = content.substring(0, 15000) + "\n\n...[SYSTEM WARNING: FILE CONTENT TRUNCATED DUE TO COGNITIVE LIMITS.]";
+                    }
+                    result = { success: true, content };
+                } else if (call.name === 'readGitHubCode') {
+                    const args = call.args as any;
+                    const url = `https://raw.githubusercontent.com/bjud-in-oss/ouroboros-memory-interface/main/${args.filePath}`;
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error(`GitHub fetch failed: ${res.statusText}`);
+                    let content = await res.text();
+                    if (content.length > 15000) {
+                        content = content.substring(0, 15000) + "\n\n...[SYSTEM WARNING: FILE CONTENT TRUNCATED DUE TO COGNITIVE LIMITS.]";
+                    }
+                    result = { success: true, content };
+                } else {
+                    throw new Error(`Unknown tool: ${call.name}`);
+                }
+            } catch (err: any) {
+                result = { error: err.message || JSON.stringify(err) };
+            }
+            
+            functionResponses.push({
+                functionResponse: {
+                    name: call.name,
+                    response: result
+                }
+            });
+        }
+        
+        if (memoryMutated) {
+            try {
+                await saveState({
+                    app_version: "1.0.0",
+                    last_sync_timestamp: Date.now(),
+                    memory: memoryState,
+                    focus: currentFocus
+                });
+            } catch (err: any) {
+                console.error("Atomic save failed after tool execution", err);
+            }
+        }
+        
+        history.push({ role: 'user', parts: functionResponses });
+    } else {
+        history.push({ role: 'model', parts: [{ text: response.text || '' }] });
+        
+        if (response.text) {
+             const parsed = JSON.parse(response.text);
+             finalResponseText = parsed.text_response || "System error: No response generated.";
+             finalFocus = parsed.updated_focus || currentFocus;
+        }
+        break; // End of interaction
+    }
  }
+
+ return {
+    response: finalResponseText,
+    newMemory: memoryState,
+    newFocus: finalFocus
+ };
 };

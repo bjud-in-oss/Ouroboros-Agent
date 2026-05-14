@@ -289,6 +289,7 @@ export const saveState = async (data: AppData): Promise<void> => {
   // Ensure the folder exists first
   const folderId = await ensureFolderExists();
   const fileId = await findFileId(FILE_NAME, folderId);
+  const focusFileId = await findFileId('CURRENT_FOCUS.md', folderId);
   
   // SNAPSHOT STRATEGY: If file exists, backup first
   if (fileId) {
@@ -334,6 +335,45 @@ export const saveState = async (data: AppData): Promise<void> => {
 
   if (!response.ok) {
     throw new Error(`Drive Upload Failed: ${response.statusText}`);
+  }
+
+  // Save CURRENT_FOCUS.md
+  let focusMethod = 'POST';
+  let focusUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+  let focusMetadata: any = {
+      name: 'CURRENT_FOCUS.md',
+      mimeType: 'text/markdown'
+  };
+
+  if (focusFileId) {
+      focusMethod = 'PATCH';
+      focusUrl = `https://www.googleapis.com/upload/drive/v3/files/${focusFileId}?uploadType=multipart`;
+  } else {
+      focusMetadata.parents = [folderId];
+  }
+
+  const focusMarkdown = `# Current Objective\n${data.focus.current_objective}\n\n## Chain of Thought\n${data.focus.chain_of_thought.map(t=>`- ${t}`).join('\n')}\n\n## Pending Tasks\n${data.focus.pending_tasks.map(t=>`- [ ] ${t}`).join('\n')}\n\n*Last Updated: ${data.focus.last_updated}*`;
+
+  const focusMultipartBody =
+    `--foo_bar_baz\r\n` +
+    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+    `${JSON.stringify(focusMetadata)}\r\n` +
+    `--foo_bar_baz\r\n` +
+    `Content-Type: text/markdown\r\n\r\n` +
+    `${focusMarkdown}\r\n` +
+    `--foo_bar_baz--`;
+
+  const focusResponse = await fetch(focusUrl, {
+    method: focusMethod,
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'multipart/related; boundary=foo_bar_baz',
+    },
+    body: focusMultipartBody,
+  });
+
+  if (!focusResponse.ok) {
+      console.warn("Failed to save CURRENT_FOCUS.md");
   }
 };
 
