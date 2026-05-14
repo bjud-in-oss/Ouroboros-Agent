@@ -2,6 +2,15 @@ import { GoogleGenAI, Type, Schema, Content } from "@google/genai";
 import { LongTermMemory, FocusLog } from "../types";
 import { readFile, createFile, ensureFolderExists, saveState } from "./driveService";
 
+export class MCPClientManager {
+    // TODO (Phase 9.1): Implementera @modelcontextprotocol/sdk med SSEClientTransport.
+    // Denna manager ska dynamiskt hämta verktyg från externa MCP-servrar 
+    // och injicera dem i Geminis functionDeclarations.
+    constructor() {
+        // Init logic here
+    }
+}
+
 const apiKey = process.env.API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
 
