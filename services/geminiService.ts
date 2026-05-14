@@ -5,9 +5,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 
 export class MCPClientManager {
-    // TODO (Phase 9.1): Implementera @modelcontextprotocol/sdk med SSEClientTransport.
-    // Denna manager ska dynamiskt hämta verktyg från externa MCP-servrar 
-    // och injicera dem i Geminis functionDeclarations.
+    // TODO (Phase 9.2): Extrahera tools via client.listTools() och mappa dessa till Geminis functionDeclarations.
+    // Denna manager håller klienten levande över renders genom att instansieras i root eller React context.
     public client: Client | null = null;
 
     constructor() {
@@ -140,14 +139,12 @@ export const processInteraction = async (
     }
 
     let response;
+    let timeoutId: string | number | NodeJS.Timeout | undefined;
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 25000);
-        
         const timeoutPromise = new Promise((_, reject) => {
-             controller.signal.addEventListener('abort', () => {
-                 reject(new Error("System Timeout: Google AI Studio svarar inte. Vänligen försök igen."));
-             });
+             timeoutId = setTimeout(() => {
+                 reject(new Error("System Timeout: Gemini API tog för lång tid på sig att svara (>25 sekunder). Vänligen försök igen."));
+             }, 25000);
         });
 
         const apiCall = ai.models.generateContent({
@@ -210,23 +207,17 @@ export const processInteraction = async (
     });
 
         response = await Promise.race([apiCall, timeoutPromise]) as any;
-        clearTimeout(timeoutId);
     } catch (err: any) {
-        if (err.status === 429 || (err.message && (err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED')))) {
+        if (err.status === 429 || err.status === 503 || (err.message && (err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED') || err.message.includes('503') || err.message.includes('UNAVAILABLE')))) {
             return {
-                response: "[SYSTEM HALT: Kognitiv överbelastning (API Rate Limit). Modellen behöver vila. Vänligen vänta en minut och försök igen.]",
-                newMemory: memoryState,
-                newFocus: currentFocus
-            };
-        }
-        if (err.status === 503 || (err.message && (err.message.includes('503') || err.message.includes('UNAVAILABLE')))) {
-            return {
-                response: "[SYSTEM ERROR: Google AI Studio är för närvarande överbelastat (Error 503). Jag sparar ditt nuvarande tillstånd, men vi måste pausa konversationen i några minuter.]",
+                response: "[SYSTEM ERROR: Gemini API är för närvarande överbelastat (Error 503/429). Ditt minnestillstånd är säkert sparat lokalt, men vi måste pausa konversationen i några minuter innan nästa anrop.]",
                 newMemory: memoryState,
                 newFocus: currentFocus
             };
         }
         throw err;
+    } finally {
+        if (timeoutId) clearTimeout(timeoutId);
     }
 
     if (response.functionCalls && response.functionCalls.length > 0) {
