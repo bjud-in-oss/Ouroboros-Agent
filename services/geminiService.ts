@@ -76,7 +76,7 @@ export const processInteraction = async (
      throw new Error("API Key is missing. Please ensure process.env.API_KEY is configured.");
  }
 
- const model = "gemini-3-flash";
+ const model = "gemini-3-flash-preview";
  const memoryState = JSON.parse(JSON.stringify(currentMemory));
 
  const systemInstruction = `
