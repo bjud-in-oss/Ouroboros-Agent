@@ -130,10 +130,27 @@ export const processInteraction = async (
  let finalResponseText = '';
  let finalFocus = currentFocus;
 
- for (let turn = 0; turn < 10; turn++) {
+ for (let turn = 0; turn <= 10; turn++) {
+    if (turn === 10) {
+        return {
+            response: "[SYSTEM WARNING: Max reflexions-loop nådd (10 steg). Avbryter för att förhindra hängning.]",
+            newMemory: memoryState,
+            newFocus: currentFocus
+        };
+    }
+
     let response;
     try {
-        response = await ai.models.generateContent({
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25000);
+        
+        const timeoutPromise = new Promise((_, reject) => {
+             controller.signal.addEventListener('abort', () => {
+                 reject(new Error("System Timeout: Google AI Studio svarar inte. Vänligen försök igen."));
+             });
+        });
+
+        const apiCall = ai.models.generateContent({
             model,
             contents: history,
             config: {
@@ -191,10 +208,20 @@ export const processInteraction = async (
             responseSchema: focusUpdateSchema
         }
     });
+
+        response = await Promise.race([apiCall, timeoutPromise]) as any;
+        clearTimeout(timeoutId);
     } catch (err: any) {
         if (err.status === 429 || (err.message && (err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED')))) {
             return {
                 response: "[SYSTEM HALT: Kognitiv överbelastning (API Rate Limit). Modellen behöver vila. Vänligen vänta en minut och försök igen.]",
+                newMemory: memoryState,
+                newFocus: currentFocus
+            };
+        }
+        if (err.status === 503 || (err.message && (err.message.includes('503') || err.message.includes('UNAVAILABLE')))) {
+            return {
+                response: "[SYSTEM ERROR: Google AI Studio är för närvarande överbelastat (Error 503). Jag sparar ditt nuvarande tillstånd, men vi måste pausa konversationen i några minuter.]",
                 newMemory: memoryState,
                 newFocus: currentFocus
             };
