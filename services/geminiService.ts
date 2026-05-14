@@ -135,6 +135,11 @@ export const processInteraction = async (
                         parameters: { type: Type.OBJECT, properties: { index: { type: Type.INTEGER } }, required: ["index"] }
                     },
                     {
+                        name: "updateKnownGithubSha",
+                        description: "Use this to acknowledge that you have read and understood the latest GitHub codebase updates.",
+                        parameters: { type: Type.OBJECT, properties: { sha: { type: Type.STRING } }, required: ["sha"] }
+                    },
+                    {
                         name: "createContextCapsule",
                         description: "Create a context capsule markdown file on Drive and link it to a project.",
                         parameters: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, content: { type: Type.STRING }, targetId: { type: Type.STRING }, targetType: { type: Type.STRING } }, required: ["title", "content", "targetId", "targetType"] }
@@ -208,6 +213,11 @@ export const processInteraction = async (
                     } else {
                         throw new Error(`Invalid index: ${args.index}`);
                     }
+                } else if (call.name === 'updateKnownGithubSha') {
+                    const args = call.args as any;
+                    memoryState.last_known_github_sha = args.sha;
+                    result = { success: true, message: `Acknowledged GitHub SHA: ${args.sha}` };
+                    memoryMutated = true;
                 } else if (call.name === 'createContextCapsule') {
                     const args = call.args as any;
                     const folderId = await ensureFolderExists();

@@ -29,6 +29,7 @@ const App: React.FC = () => {
   const [systemInjection, setSystemInjection] = useState<string | null>(null);
   
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const hasCheckedGithub = useRef(false);
 
   // --- Effects ---
   
@@ -39,6 +40,64 @@ const App: React.FC = () => {
       // Optionally try silent auth here if we had persistence logic for sessions
     });
   }, []);
+
+  // GitHub Wake-up Protocol
+  useEffect(() => {
+    if (!isDriveConnected || isSyncing || hasCheckedGithub.current) return;
+    
+    const checkGithub = async () => {
+      hasCheckedGithub.current = true;
+      try {
+        const res = await fetch('https://api.github.com/repos/bjud-in-oss/ouroboros-agent/commits/main');
+        if (!res.ok) return;
+        const data = await res.json();
+        const latestSha = data.sha;
+        
+        if (latestSha && latestSha !== memory.last_known_github_sha) {
+           const wakeUpMsg = `[SYSTEM WAKE-UP TRIGGER: Ditt DNA (källkod) har uppdaterats på GitHub till commit SHA: ${latestSha}. Vänligen använd ditt verktyg \`readGitHubCode\` för att läsa \`services/geminiService.ts\` och se vilka nya förmågor The Architect har gett dig. Uppdatera sedan din förståelse i dina Context Capsules, och anropa slutligen \`updateKnownGithubSha("${latestSha}")\` för att bekräfta att du förstår din nya kropp.]`;
+           
+           // Simulate user message indicating the system wake-up to not wait for user input
+           setMessages(prev => [...prev, { role: 'user', content: wakeUpMsg, timestamp: Date.now() }]);
+           setIsLoading(true);
+           
+           try {
+             const { response, newMemory, newFocus } = await processInteraction(
+               wakeUpMsg,
+               memory,
+               focus,
+               async (updatedMemory) => {
+                 setMemory(updatedMemory);
+                 if (isDriveConnected) {
+                    try {
+                       await driveService.saveState({
+                         app_version: "1.0.0",
+                         last_sync_timestamp: Date.now(),
+                         memory: updatedMemory,
+                         focus: focus
+                       });
+                    } catch (err) {
+                       console.error("Real-time Drive Sync failed:", err);
+                    }
+                 }
+               }
+             );
+             setMemory(newMemory);
+             setFocus(newFocus);
+             setMessages(prev => [...prev, { role: 'model', content: response, timestamp: Date.now() }]);
+             await handleSyncUp(newMemory, newFocus);
+           } catch (err: any) {
+             console.error(err);
+             setMessages(prev => [...prev, { role: 'system', content: `Error during Wake-Up: ${err.message || String(err)}`, timestamp: Date.now() }]);
+           } finally {
+             setIsLoading(false);
+           }
+        }
+      } catch (e) {
+        console.error("Github check failed", e);
+      }
+    };
+    checkGithub();
+  }, [isDriveConnected, isSyncing, memory, focus]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });

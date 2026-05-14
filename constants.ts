@@ -2,6 +2,7 @@ import { LongTermMemory, FocusLog } from './types';
 
 export const INITIAL_MEMORY: LongTermMemory = {
   "schema_version": "1.3.1",
+  "last_known_github_sha": "",
   "core_instructions": [
     "--- CRITICAL TECHNICAL DIRECTIVES (DO NOT REMOVE) ---",
     "DRIVE ID LAW: Google Drive is a flat ID-based database. NEVER use Unix paths (e.g., /content/drive/). Always resolve folderId via query.",

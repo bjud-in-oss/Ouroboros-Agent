@@ -35,6 +35,7 @@ export interface LongTermMemory {
   learned_truths: string[];
   knowledge_graph: KnowledgeGraph;
   confidence_metrics: ConfidenceMetric[];
+  last_known_github_sha?: string;
 }
 
 export interface FocusLog {
