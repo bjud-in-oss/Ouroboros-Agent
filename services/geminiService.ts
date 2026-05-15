@@ -5,6 +5,35 @@ import { readFile, createFile, ensureFolderExists, saveState } from "./driveServ
 const apiKey = process.env.API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
 
+
+const focusUpdateSchema: Schema = {
+ type: Type.OBJECT,
+ properties: {
+   text_response: {
+     type: Type.STRING,
+     description: "The verbal response to the user."
+   },
+   updated_focus: {
+       type: Type.OBJECT,
+       description: "The updated structured content for CURRENT_FOCUS.md (represented as object)",
+       properties: {
+           last_updated: { type: Type.STRING },
+           current_objective: { type: Type.STRING },
+           chain_of_thought: {
+               type: Type.ARRAY,
+               items: { type: Type.STRING }
+           },
+           pending_tasks: {
+               type: Type.ARRAY,
+               items: { type: Type.STRING }
+           }
+       },
+       required: ["last_updated", "current_objective", "chain_of_thought", "pending_tasks"]
+   }
+ },
+ required: ["text_response", "updated_focus"]
+};
+
 export const processInteraction = async (
  userPrompt: string,
  currentMemory: LongTermMemory,
@@ -34,17 +63,7 @@ export const processInteraction = async (
  2. Use the provided tools to mutate your Memory or read files as needed. 
     - Use memory mutation tools (addLearnedTruth, addGraphNode, etc.) to atomicly update LONG_TERM_MEMORY.
     - Use file operation tools (createContextCapsule, readContextCapsule, readGitHubCode) for I/O operations.
- 3. EXPLICIT JSON REQUIREMENT: You MUST output your final response as a raw, valid JSON object with EXACTLY the following structure:
-    {
-      "text_response": "The verbal response to the user.",
-      "updated_focus": {
-        "last_updated": "ISO date string",
-        "current_objective": "string",
-        "chain_of_thought": ["string array"],
-        "pending_tasks": ["string array"]
-      }
-    }
-    Do not include any other conversational text outside the JSON object. Do not wrap the JSON in markdown code blocks.
+ 3. Output your final response in JSON format matching the schema (text_response, updated_focus).
  
  INPUT CONTEXT:
  --- LONG_TERM_MEMORY.json ---
@@ -137,7 +156,9 @@ export const processInteraction = async (
                         parameters: { type: Type.OBJECT, properties: { filePath: { type: Type.STRING } }, required: ["filePath"] }
                     }
                 ]
-            }]
+            }],
+            responseMimeType: "application/json",
+            responseSchema: focusUpdateSchema
         }
     });
 
@@ -257,26 +278,9 @@ export const processInteraction = async (
         history.push({ role: 'model', parts: [{ text: response.text || '' }] });
         
         if (response.text) {
-             let cleanJson = response.text.trim();
-             // Safely strip markdown wrappers if the model includes them
-             if (cleanJson.startsWith('```json')) {
-                 cleanJson = cleanJson.substring(7);
-             } else if (cleanJson.startsWith('```')) {
-                 cleanJson = cleanJson.substring(3);
-             }
-             if (cleanJson.endsWith('```')) {
-                 cleanJson = cleanJson.substring(0, cleanJson.length - 3);
-             }
-             cleanJson = cleanJson.trim();
-
-             try {
-                 const parsed = JSON.parse(cleanJson);
-                 finalResponseText = parsed.text_response || "System error: No response generated.";
-                 finalFocus = parsed.updated_focus || currentFocus;
-             } catch (err) {
-                 console.error("Failed to parse model JSON response:", err);
-                 finalResponseText = response.text;
-             }
+             const parsed = JSON.parse(response.text);
+             finalResponseText = parsed.text_response || "System error: No response generated.";
+             finalFocus = parsed.updated_focus || currentFocus;
         }
         break; // End of interaction
     }
