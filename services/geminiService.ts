@@ -1,34 +1,6 @@
 import { GoogleGenAI, Type, Schema, Content } from "@google/genai";
 import { LongTermMemory, FocusLog } from "../types";
 import { readFile, createFile, ensureFolderExists, saveState } from "./driveService";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-
-export class MCPClientManager {
-    // TODO (Phase 9.2): Extrahera tools via client.listTools() och mappa dessa till Geminis functionDeclarations.
-    // Denna manager håller klienten levande över renders genom att instansieras i root eller React context.
-    public client: Client | null = null;
-
-    constructor() {
-        // Init logic here
-    }
-
-    async connect(url: string) {
-        console.log(`Connecting to MCP server at ${url}...`);
-        const transport = new SSEClientTransport(new URL(url));
-        this.client = new Client({
-            name: "ouroboros-mcp-client",
-            version: "1.0.0"
-        }, {
-            capabilities: {
-                tools: {}
-            }
-        });
-        
-        await this.client.connect(transport);
-        console.log(`Successfully connected to MCP server at ${url}.`);
-    }
-}
 
 const apiKey = process.env.API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
@@ -86,7 +58,6 @@ export const processInteraction = async (
  You have no internal persistent state between sessions. Your entire "Self" is defined by your Long Term Memory and Current Focus.
  
  YOUR TASK:
- NOTE: You can and should output MULTIPLE tool calls in a single response if you need to perform multiple actions (e.g., adding several learned truths at once). This saves reflection turns.
  1. Analyze the User's Input.
  2. Use the provided tools to mutate your Memory or read files as needed. 
     - Use memory mutation tools (addLearnedTruth, addGraphNode, etc.) to atomicly update LONG_TERM_MEMORY.
@@ -130,33 +101,14 @@ export const processInteraction = async (
  let finalResponseText = '';
  let finalFocus = currentFocus;
 
- const executedToolCalls = new Set<string>();
-
- for (let turn = 0; turn <= 20; turn++) {
-    if (turn === 20) {
-        return {
-            response: "[SYSTEM WARNING: Max reflexions-loop nådd (20 steg). Avbryter för att förhindra hängning.]",
-            newMemory: memoryState,
-            newFocus: currentFocus
-        };
-    }
-
-    let response;
-    let timeoutId: string | number | NodeJS.Timeout | undefined;
-    try {
-        const timeoutPromise = new Promise((_, reject) => {
-             timeoutId = setTimeout(() => {
-                 reject(new Error("System Timeout: Gemini API tog för lång tid på sig att svara (>60 sekunder). Vänligen försök igen."));
-             }, 60000);
-        });
-
-        const apiCall = ai.models.generateContent({
-            model,
-            contents: history,
-            config: {
-                systemInstruction,
-                tools: [{
-                    functionDeclarations: [
+ for (let turn = 0; turn < 10; turn++) {
+    const response = await ai.models.generateContent({
+        model,
+        contents: history,
+        config: {
+            systemInstruction,
+            tools: [{
+                functionDeclarations: [
                     {
                         name: "addLearnedTruth",
                         description: "Add a learned truth to memory.",
@@ -209,20 +161,6 @@ export const processInteraction = async (
         }
     });
 
-        response = await Promise.race([apiCall, timeoutPromise]) as any;
-    } catch (err: any) {
-        if (err.status === 429 || err.status === 503 || (err.message && (err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED') || err.message.includes('503') || err.message.includes('UNAVAILABLE')))) {
-            return {
-                response: "[SYSTEM ERROR: Gemini API är för närvarande överbelastat (Error 503/429). Ditt minnestillstånd är säkert sparat lokalt, men vi måste pausa konversationen i några minuter innan nästa anrop.]",
-                newMemory: memoryState,
-                newFocus: currentFocus
-            };
-        }
-        throw err;
-    } finally {
-        if (timeoutId) clearTimeout(timeoutId);
-    }
-
     if (response.functionCalls && response.functionCalls.length > 0) {
         if (response.candidates && response.candidates[0] && response.candidates[0].content) {
             history.push(response.candidates[0].content);
@@ -235,13 +173,8 @@ export const processInteraction = async (
         
         for (const call of response.functionCalls) {
             let result: any;
-            const callSignature = JSON.stringify({ name: call.name, args: call.args });
-            if (executedToolCalls.has(callSignature)) {
-                result = { error: "SYSTEM STOP: You already executed this exact tool call with these exact arguments in this turn. Stop repeating yourself and provide the final JSON text_response to the user." };
-            } else {
-                executedToolCalls.add(callSignature);
-                try {
-                    if (call.name === 'addLearnedTruth') {
+            try {
+                if (call.name === 'addLearnedTruth') {
                     const args = call.args as any;
                     memoryState.learned_truths.push(args.truth);
                     result = { success: true, message: `Learned truth added.` };
@@ -320,7 +253,6 @@ export const processInteraction = async (
             } catch (err: any) {
                 result = { error: err.message || JSON.stringify(err) };
             }
-            }
             
             functionResponses.push({
                 functionResponse: {
@@ -345,14 +277,9 @@ export const processInteraction = async (
         history.push({ role: 'model', parts: [{ text: response.text || '' }] });
         
         if (response.text) {
-             try {
-                 const parsed = JSON.parse(response.text);
-                 finalResponseText = parsed.text_response || "System error: No response generated.";
-                 finalFocus = parsed.updated_focus || currentFocus;
-             } catch (e) {
-                 finalResponseText = "System Error: Modellen returnerade ogiltig JSON. Råtext: " + response.text;
-                 finalFocus = currentFocus;
-             }
+             const parsed = JSON.parse(response.text);
+             finalResponseText = parsed.text_response || "System error: No response generated.";
+             finalFocus = parsed.updated_focus || currentFocus;
         }
         break; // End of interaction
     }

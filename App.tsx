@@ -19,7 +19,7 @@ const App: React.FC = () => {
   const [memory, setMemory] = useState<LongTermMemory>(INITIAL_MEMORY);
   const [focus, setFocus] = useState<FocusLog>(INITIAL_FOCUS);
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'system', content: 'Välkommen till Ouroboros 2.0 (Neural Core v2.2). Jag är en autonom, självläkande agent med persistent minne, Kognitiva Ekon och ett proaktivt Wake-Up-protokoll. Mitt tillstånd är för närvarande vilande. Klicka på "Anslut till Google Drive" för att ladda in min själ (app-data.json) och initiera sessionen.', timestamp: Date.now() }
+    { role: 'system', content: 'Drive-Augmented Ouroboros System Online. Waiting for connection...', timestamp: Date.now() }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
