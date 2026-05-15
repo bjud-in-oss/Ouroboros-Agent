@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type, Schema, Content } from "@google/genai";
 import { LongTermMemory, FocusLog } from "../types";
 import { readFile, createFile, ensureFolderExists, saveState } from "./driveService";
+import { mcpService } from "./mcpService";
 
 const apiKey = process.env.API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
@@ -103,59 +104,72 @@ export const processInteraction = async (
  let finalFocus = currentFocus;
 
  for (let turn = 0; turn < 10; turn++) {
+    let mcpFunctionDeclarations: any[] = [];
+    if (mcpService.getClient()) {
+        try {
+            mcpFunctionDeclarations = await mcpService.getTools();
+        } catch(err) {
+            console.error("Failed to fetch MCP tools", err);
+        }
+    }
+
+    const nativeFunctionDeclarations = [
+        {
+            name: "addLearnedTruth",
+            description: "Add a learned truth to memory.",
+            parameters: { type: Type.OBJECT, properties: { truth: { type: Type.STRING } }, required: ["truth"] }
+        },
+        {
+            name: "addGraphNode",
+            description: "Add a node to the knowledge graph.",
+            parameters: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, label: { type: Type.STRING }, type: { type: Type.STRING } }, required: ["id", "label", "type"] }
+        },
+        {
+            name: "addGraphEdge",
+            description: "Add an edge to the knowledge graph.",
+            parameters: { type: Type.OBJECT, properties: { source: { type: Type.STRING }, target: { type: Type.STRING }, relation: { type: Type.STRING } }, required: ["source", "target", "relation"] }
+        },
+        {
+            name: "archiveProject",
+            description: "Archive a project.",
+            parameters: { type: Type.OBJECT, properties: { id: { type: Type.STRING } }, required: ["id"] }
+        },
+        {
+            name: "archiveLearnedTruth",
+            description: "Remove a learned truth from memory by its index.",
+            parameters: { type: Type.OBJECT, properties: { index: { type: Type.INTEGER } }, required: ["index"] }
+        },
+        {
+            name: "updateKnownGithubSha",
+            description: "Use this to acknowledge that you have read and understood the latest GitHub codebase updates.",
+            parameters: { type: Type.OBJECT, properties: { sha: { type: Type.STRING } }, required: ["sha"] }
+        },
+        {
+            name: "createContextCapsule",
+            description: "Create a context capsule markdown file on Drive and link it to a project.",
+            parameters: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, content: { type: Type.STRING }, targetId: { type: Type.STRING }, targetType: { type: Type.STRING } }, required: ["title", "content", "targetId", "targetType"] }
+        },
+        {
+            name: "readContextCapsule",
+            description: "Read context capsule from Drive using fileId.",
+            parameters: { type: Type.OBJECT, properties: { fileId: { type: Type.STRING } }, required: ["fileId"] }
+        },
+        {
+            name: "readGitHubCode",
+            description: "Read code from GitHub repo using file path.",
+            parameters: { type: Type.OBJECT, properties: { filePath: { type: Type.STRING } }, required: ["filePath"] }
+        }
+    ];
+
+    const allTools = [...nativeFunctionDeclarations, ...mcpFunctionDeclarations];
+
     const response = await ai.models.generateContent({
         model,
         contents: history,
         config: {
             systemInstruction,
             tools: [{
-                functionDeclarations: [
-                    {
-                        name: "addLearnedTruth",
-                        description: "Add a learned truth to memory.",
-                        parameters: { type: Type.OBJECT, properties: { truth: { type: Type.STRING } }, required: ["truth"] }
-                    },
-                    {
-                        name: "addGraphNode",
-                        description: "Add a node to the knowledge graph.",
-                        parameters: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, label: { type: Type.STRING }, type: { type: Type.STRING } }, required: ["id", "label", "type"] }
-                    },
-                    {
-                        name: "addGraphEdge",
-                        description: "Add an edge to the knowledge graph.",
-                        parameters: { type: Type.OBJECT, properties: { source: { type: Type.STRING }, target: { type: Type.STRING }, relation: { type: Type.STRING } }, required: ["source", "target", "relation"] }
-                    },
-                    {
-                        name: "archiveProject",
-                        description: "Archive a project.",
-                        parameters: { type: Type.OBJECT, properties: { id: { type: Type.STRING } }, required: ["id"] }
-                    },
-                    {
-                        name: "archiveLearnedTruth",
-                        description: "Remove a learned truth from memory by its index.",
-                        parameters: { type: Type.OBJECT, properties: { index: { type: Type.INTEGER } }, required: ["index"] }
-                    },
-                    {
-                        name: "updateKnownGithubSha",
-                        description: "Use this to acknowledge that you have read and understood the latest GitHub codebase updates.",
-                        parameters: { type: Type.OBJECT, properties: { sha: { type: Type.STRING } }, required: ["sha"] }
-                    },
-                    {
-                        name: "createContextCapsule",
-                        description: "Create a context capsule markdown file on Drive and link it to a project.",
-                        parameters: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, content: { type: Type.STRING }, targetId: { type: Type.STRING }, targetType: { type: Type.STRING } }, required: ["title", "content", "targetId", "targetType"] }
-                    },
-                    {
-                        name: "readContextCapsule",
-                        description: "Read context capsule from Drive using fileId.",
-                        parameters: { type: Type.OBJECT, properties: { fileId: { type: Type.STRING } }, required: ["fileId"] }
-                    },
-                    {
-                        name: "readGitHubCode",
-                        description: "Read code from GitHub repo using file path.",
-                        parameters: { type: Type.OBJECT, properties: { filePath: { type: Type.STRING } }, required: ["filePath"] }
-                    }
-                ]
+                functionDeclarations: allTools
             }],
             responseMimeType: "application/json",
             responseSchema: focusUpdateSchema
@@ -249,7 +263,8 @@ export const processInteraction = async (
                     }
                     result = { success: true, content };
                 } else {
-                    throw new Error(`Unknown tool: ${call.name}`);
+                    const mcpResult = await mcpService.executeTool(call.name, call.args);
+                    result = { success: true, content: mcpResult };
                 }
             } catch (err: any) {
                 result = {
