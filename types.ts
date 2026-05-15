@@ -28,17 +28,6 @@ export interface ConfidenceMetric {
   score: number;
 }
 
-export interface ModelMetrics {
-  id: string;
-  modelName: string;
-  timestamp: number;
-  durationMs: number;
-  promptTokens: number;
-  candidateTokens: number;
-  totalTokens: number;
-  turnCount: number;
-}
-
 export interface LongTermMemory {
   schema_version: string;
   core_instructions: string[];

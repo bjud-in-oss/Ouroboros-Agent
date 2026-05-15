@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema, Content } from "@google/genai";
-import { LongTermMemory, FocusLog, ModelMetrics } from "../types";
+import { LongTermMemory, FocusLog } from "../types";
 import { readFile, createFile, ensureFolderExists, saveState } from "./driveService";
 
 const apiKey = process.env.API_KEY || '';
@@ -43,8 +43,7 @@ export const processInteraction = async (
 ): Promise<{
    response: string;
    newMemory: LongTermMemory;
-   newFocus: FocusLog;
-   metrics: ModelMetrics;
+   newFocus: FocusLog
 }> => {
   if (!apiKey) {
      throw new Error("API Key is missing. Please ensure process.env.API_KEY is configured.");
@@ -102,11 +101,6 @@ export const processInteraction = async (
 
  let finalResponseText = '';
  let finalFocus = currentFocus;
-
- const startTime = Date.now();
- let totalPromptTokens = 0;
- let totalCandidateTokens = 0;
- let turnCount = 0;
 
  for (let turn = 0; turn < 10; turn++) {
     const response = await ai.models.generateContent({
@@ -167,12 +161,6 @@ export const processInteraction = async (
             responseSchema: focusUpdateSchema
         }
     });
-
-    turnCount++;
-    if (response.usageMetadata) {
-        totalPromptTokens += response.usageMetadata.promptTokenCount || 0;
-        totalCandidateTokens += response.usageMetadata.candidatesTokenCount || 0;
-    }
 
     if (response.functionCalls && response.functionCalls.length > 0) {
         if (response.candidates && response.candidates[0] && response.candidates[0].content) {
@@ -298,22 +286,9 @@ export const processInteraction = async (
     }
  }
 
- const durationMs = Date.now() - startTime;
- const metrics: ModelMetrics = {
-    id: Math.random().toString(36).substring(7),
-    modelName: model,
-    timestamp: Date.now(),
-    durationMs,
-    promptTokens: totalPromptTokens,
-    candidateTokens: totalCandidateTokens,
-    totalTokens: totalPromptTokens + totalCandidateTokens,
-    turnCount
- };
-
  return {
     response: finalResponseText,
     newMemory: memoryState,
-    newFocus: finalFocus,
-    metrics
+    newFocus: finalFocus
  };
 };

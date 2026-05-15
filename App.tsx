@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { INITIAL_MEMORY, INITIAL_FOCUS } from './constants';
-import { LongTermMemory, FocusLog, ChatMessage, AppData, ModelMetrics } from './types';
+import { LongTermMemory, FocusLog, ChatMessage, AppData } from './types';
 import { processInteraction } from './services/geminiService';
 import * as driveService from './services/driveService';
 import MemoryPanel from './components/MemoryPanel';
 import FocusPanel from './components/FocusPanel';
-import MetricsPanel from './components/MetricsPanel';
-import { Terminal, Trash2, Send, Cpu, HardDrive, Download, Cloud, LogIn, Bug, Wrench, Activity } from 'lucide-react';
+import { Terminal, Trash2, Send, Cpu, HardDrive, Download, Cloud, LogIn, Bug, Wrench } from 'lucide-react';
 
 const App: React.FC = () => {
   // --- DEBUG BRIDGE START ---
@@ -25,8 +24,7 @@ const App: React.FC = () => {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'memory' | 'focus' | 'metrics'>('memory');
-  const [metrics, setMetrics] = useState<ModelMetrics[]>([]);
+  const [activeTab, setActiveTab] = useState<'memory' | 'focus'>('memory');
   const [isDriveConnected, setIsDriveConnected] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [systemInjection, setSystemInjection] = useState<string | null>(null);
@@ -64,7 +62,7 @@ const App: React.FC = () => {
            setIsLoading(true);
            
            try {
-             const { response, newMemory, newFocus, metrics: newMetrics } = await processInteraction(
+             const { response, newMemory, newFocus } = await processInteraction(
                wakeUpMsg,
                memory,
                focus,
@@ -87,7 +85,6 @@ const App: React.FC = () => {
              );
              setMemory(newMemory);
              setFocus(newFocus);
-             if (newMetrics) setMetrics(prev => [newMetrics, ...prev]);
              setMessages(prev => [...prev, { role: 'model', content: response, timestamp: Date.now() }]);
              await handleSyncUp(newMemory, newFocus);
            } catch (err: any) {
@@ -219,7 +216,7 @@ const App: React.FC = () => {
       const fullPrompt = systemInjection ? `${input}\n\n${systemInjection}` : input;
       if (systemInjection) setSystemInjection(null); // Clear after injection
       
-      const { response, newMemory, newFocus, metrics: newMetrics } = await processInteraction(
+      const { response, newMemory, newFocus } = await processInteraction(
         fullPrompt, 
         memory, 
         focus,
@@ -244,7 +241,6 @@ const App: React.FC = () => {
       
       setMemory(newMemory);
       setFocus(newFocus);
-      if (newMetrics) setMetrics(prev => [newMetrics, ...prev]);
       setMessages(prev => [...prev, { role: 'model', content: response, timestamp: Date.now() }]);
       
       // Auto-sync after every turn (Ouroboros loop)
@@ -433,16 +429,6 @@ const App: React.FC = () => {
                 >
                     <Terminal size={14} /> Current Focus (MD)
                 </button>
-                <button
-                    onClick={() => setActiveTab('metrics')}
-                    className={`px-4 py-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-2 ${
-                        activeTab === 'metrics' 
-                        ? 'bg-zinc-800 text-white shadow-sm border border-zinc-700' 
-                        : 'text-zinc-500 hover:text-zinc-300'
-                    }`}
-                >
-                    <Activity size={14} /> System Metrics
-                </button>
             </div>
 
             {/* Actions */}
@@ -473,13 +459,9 @@ const App: React.FC = () => {
                 <div className="h-full animate-in fade-in duration-300">
                     <MemoryPanel memory={memory} />
                 </div>
-            ) : activeTab === 'focus' ? (
-                <div className="h-full animate-in fade-in duration-300">
-                    <FocusPanel focus={focus} />
-                </div>
             ) : (
                 <div className="h-full animate-in fade-in duration-300">
-                    <MetricsPanel metrics={metrics} />
+                    <FocusPanel focus={focus} />
                 </div>
             )}
         </div>
