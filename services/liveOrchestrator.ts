@@ -192,9 +192,7 @@ export class WorkerAgent {
         config: {
           tools: toolsConfig,
           systemInstruction: this.getSystemInstruction(),
-          speechConfig: {
-              voiceConfig: { prebuiltVoiceConfig: { voiceName: this.id === 2 ? "Kore" : "Zephyr" } }
-          },
+          responseModalities: [Modality.TEXT],
           // WORKER RULE: VAD disabled
           automaticActivityDetection: false,
         }
@@ -380,6 +378,14 @@ You are the primary user interface. You DO NOT execute code or modify the app-da
 When you receive coding tasks, prioritize delegating them using 'delegateToWorker'.
 You will receive an instant "queued" confirmation so you can keep chatting while they work.
 When the worker finishes or vetos, a system message will inject the results into our feed.
+
+[CONTEXT COMPRESSION PROTOCOL]
+When delegating a task, you MUST NOT dump the raw conversation history into the taskInstruction.
+You must synthesize the user's request into a high-density structural brief containing:
+1. The exact intended outcome.
+2. The specific constraints or architectural rules requested.
+3. Target file paths (if known).
+This ensures the Worker Agent's context window remains focused purely on execution without conversational noise.
 \`;
   }
 
