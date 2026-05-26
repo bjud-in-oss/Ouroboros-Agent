@@ -138,6 +138,7 @@ export class WorkerAgent {
   public filename: string;
   private session: any | null = null;
   private resumptionHandle: string | null = null;
+  public onTaskComplete?: () => void;
 
   constructor(id: number) {
     this.id = id;
@@ -151,7 +152,19 @@ export class WorkerAgent {
   private async connect(leadCallback: (msg: any) => void) {
     try {
       const mcpTools = await mcpService.getTools();
-      const toolsConfig = mcpTools.length > 0 ? [{ functionDeclarations: mcpTools }] : undefined;
+      const orchestratorTools = [{
+        name: 'completeTask',
+        description: 'Call this when you have successfully completed the task, failed, or vetoed.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            status: { type: Type.STRING, description: "success, failed, or veto" },
+            message: { type: Type.STRING, description: "Summary to send back to Lead Agent" }
+          },
+          required: ["status", "message"]
+        }
+      }];
+      const toolsConfig = [{ functionDeclarations: [...mcpTools, ...orchestratorTools] }];
 
       this.session = await ai.live.connect({
         model: "gemini-2.5-flash-live",
@@ -166,6 +179,14 @@ export class WorkerAgent {
               const responses: any[] = [];
 
               for (const call of calls) {
+                if (call.name === 'completeTask') {
+                  const { status, message } = call.args as any;
+                  leadCallback(`Worker ${this.id} finished (${status}): ${message}`);
+                  if (this.onTaskComplete) this.onTaskComplete();
+                  responses.push({ id: call.id, name: call.name, response: { acknowledged: true } });
+                  continue;
+                }
+
                 try {
                   const result = await this.handleMcpToolCall(call.name, call.args);
                   responses.push({
@@ -219,6 +240,7 @@ THE SANDBOX LAW & ITERATION LIMITS:
 - You must validate code modifications via an external Node.js/TypeScript sandbox using mcpService.
 - You have a maximum of 3 consecutive attempts to fix execution/linting errors. 
 - If you fail on the 3rd attempt, you MUST abort, log the failure block to your focus file (\${this.filename}), and escalate back to the Lead Agent.
+- MANDATORY: When all goals are met or if you abort/veto, you MUST formally yield control by calling the 'completeTask' tool.
 
 THE VETO PROTOCOL (MANDATORY DISSENT):
 - When receiving a task: "Only implement these features if you agree with the architectural and logical approach. Otherwise, report the problem and do NOT implement anything."
@@ -270,6 +292,7 @@ export class LiveOrchestrator {
   private worker2: WorkerAgent;
   private worker3: WorkerAgent;
   private leadResumptionHandle: string | null = null;
+  private scopeLocks: Map<string, number> = new Map();
   
   // Callback to push audio/status back to UI
   public onAudioChunk?: (base64Audio: string) => void;
@@ -313,25 +336,43 @@ export class LiveOrchestrator {
               
               for (const call of calls) {
                 if (call.name === 'delegateToWorker') {
-                  // Instant-Ack (Unblock)
-                  responses.push({
-                    id: call.id,
-                    name: call.name,
-                    response: { status: "queued", message: "Task passed to worker." }
-                  });
-                  
-                  // Route out of band
                   const workerArg = call.args as any;
                   const targetWorker = workerArg.workerId === 3 ? this.worker3 : this.worker2;
+                  const lockedFiles: string[] = workerArg.lockedFiles || [];
                   
-                  // Run async background processing
-                  targetWorker.delegateTask(workerArg.taskInstruction)
-                    .then(finalResult => {
-                       this.injectToLead(\`Worker \${targetWorker.id} completed: \${JSON.stringify(finalResult)}\`);
-                    })
-                    .catch(err => {
-                       this.injectToLead(\`Worker \${targetWorker.id} FAILED OR VETOED: \${err.message}\`);
+                  // 1. Check Mutex Locks
+                  const conflictingFiles = lockedFiles.filter(f => this.scopeLocks.has(f) && this.scopeLocks.get(f) !== targetWorker.id);
+
+                  if (conflictingFiles.length > 0) {
+                    responses.push({
+                      id: call.id,
+                      name: call.name,
+                      response: { 
+                        status: "rejected", 
+                        reason: `Scope Lock Collision. The following files are currently locked by another worker processing a task: ${conflictingFiles.join(', ')}. Please wait or assign non-overlapping work.` 
+                      }
                     });
+                  } else {
+                    // 2. Acquire Locks
+                    lockedFiles.forEach(f => this.scopeLocks.set(f, targetWorker.id));
+
+                    // Instant-Ack (Unblock Lead Engine)
+                    responses.push({
+                      id: call.id,
+                      name: call.name,
+                      response: { status: "queued", message: `Task delegated successfully. Mutex acquired on ${lockedFiles.length} specific files.` }
+                    });
+                    
+                    // Route out of band & Register Callback
+                    targetWorker.onTaskComplete = () => {
+                       lockedFiles.forEach(f => this.scopeLocks.delete(f));
+                    };
+                    
+                    targetWorker.delegateTask(workerArg.taskInstruction).catch(err => {
+                       this.injectToLead(`Worker ${targetWorker.id} HARD CRASH: ${err.message}`);
+                       lockedFiles.forEach(f => this.scopeLocks.delete(f));
+                    });
+                  }
                 }
               }
               
@@ -356,9 +397,14 @@ export class LiveOrchestrator {
                 type: Type.OBJECT,
                 properties: {
                   workerId: { type: Type.INTEGER, description: "2 or 3" },
-                  taskInstruction: { type: Type.STRING, description: "Detailed task brief." }
+                  taskInstruction: { type: Type.STRING, description: "Detailed task brief." },
+                  lockedFiles: { 
+                    type: Type.ARRAY, 
+                    items: { type: Type.STRING },
+                    description: "Explicit list of absolute file paths to lock exclusively for this worker's operation to prevent write collisions."
+                  }
                 },
-                required: ["workerId", "taskInstruction"]
+                required: ["workerId", "taskInstruction", "lockedFiles"]
               }
             }]
           }]
@@ -385,6 +431,7 @@ You must synthesize the user's request into a high-density structural brief cont
 1. The exact intended outcome.
 2. The specific constraints or architectural rules requested.
 3. Target file paths (if known).
+Additionally, you MUST request an exclusive mutex lock on the specific structural files using 'lockedFiles'.
 This ensures the Worker Agent's context window remains focused purely on execution without conversational noise.
 \`;
   }
