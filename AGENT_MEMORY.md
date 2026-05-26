@@ -41,3 +41,45 @@ Before any overwrite (PATCH) of the master app-data.json, a backup MUST be creat
 - `services/driveService.ts`: Backend Persistence (Drive API v3) - **UPDATED** with Folder Awareness.
 - `components/MemoryPanel.tsx`: Visualizer for `LONG_TERM_MEMORY.json`.
 - `components/FocusPanel.tsx`: Log viewer for `CURRENT_FOCUS.md`.
+
+## Multi-Agent Orchestration & Fault Tolerance
+
+1. The Agent Triad:
+
+The system orchestrates 3 parallel Live API WebSocket sessions.
+
+Agent 1 (Lead): Uses gemini-3.1-flash-live with Voice Activity Detection (VAD) ENABLED. Acts as the user voice interface and delegates tasks. Does not execute code.
+
+Agent 2 & 3 (Workers): Uses gemini-2.5-flash-live with VAD DISABLED (automaticActivityDetection: false). Act as silent independent background coders.
+
+2. Concurrency & State Isolation (CRITICAL):
+
+To prevent overwrite collisions, Workers must maintain separate focus logs on Google Drive (e.g., WORKER_2_FOCUS.md and WORKER_3_FOCUS.md).
+
+The Orchestrator must enforce a queue or lock mechanism for saveState operations regarding master files (like app-data.json).
+
+3. The Sandbox Law & Iteration Limits (REVISED):
+
+MCP Node/TS Sandbox: Worker Agents must NOT use the native Gemini codeExecution tool. They must validate code modifications via an external Node.js/TypeScript sandbox accessed through the existing Model Context Protocol (MCP) infrastructure (services/mcpService.ts and mcp-bridge/bridge.js).
+
+Fail-Fast Mechanism: A Worker may only attempt to fix execution/linting errors a maximum of 3 consecutive times. If it fails on the 3rd try, it MUST abort, log the failure block in its focus file, and escalate the issue back to Agent 1 for human intervention.
+
+4. The Instant-Ack Hack (Async Unblocking):
+
+Because Agent 1 is synchronous, any ToolCall it issues MUST receive an immediate mock ToolResponse from the orchestrator ({"status": "queued"}). This unblocks the voice loop.
+
+Upon completion, worker results are injected back into Agent 1's WebSocket using ClientContent packaged as a system update.
+
+5. WebSocket Resilience & Drive API Limits:
+
+Orchestrator must capture SessionResumptionUpdate handles. If a WebSocket drops, use the handle to immediately reconnect. If resumption fails, completely re-initialize the session and fetch the absolute truth from Google Drive to rebuild context.
+
+Implement exponential backoff retries for all Google Drive API interactions to handle HTTP 429 limits.
+
+6. The Veto Protocol (Mandatory Dissent):
+
+Every task delegation from Agent 1 to Worker Agents must implicitly include a "Critical Evaluation Phase".
+
+Rule: Workers are explicitly instructed: "Only implement these features if you agree with the architectural and logical approach. Otherwise, report the problem and do NOT implement anything."
+
+If a Worker detects an architectural violation, logical flaw, or risk of infinite loops, it must exercise its Right to Veto. It will immediately halt execution, log the specific technical objection, and return an error payload to Agent 1.
