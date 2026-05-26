@@ -3,7 +3,7 @@ import { mcpService } from "./mcpService";
 import { saveState, ensureFolderExists, createFile, readFile } from "./driveService";
 import { AppData } from "../types";
 
-const apiKey = process.env.API_KEY || '';
+const apiKey = import.meta.env.VITE_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
 
 // ==========================================
@@ -150,10 +150,47 @@ export class WorkerAgent {
 
   private async connect(leadCallback: (msg: any) => void) {
     try {
+      const mcpTools = await mcpService.getTools();
+      const toolsConfig = mcpTools.length > 0 ? [{ functionDeclarations: mcpTools }] : undefined;
+
       this.session = await ai.live.connect({
         model: "gemini-2.5-flash-live",
+        callbacks: {
+          onmessage: async (message: LiveServerMessage) => {
+            if (message.sessionResumptionUpdate?.handle) {
+              this.resumptionHandle = message.sessionResumptionUpdate.handle;
+            }
+
+            if (message.toolCall) {
+              const calls = message.toolCall.functionCalls || [];
+              const responses: any[] = [];
+
+              for (const call of calls) {
+                try {
+                  const result = await this.handleMcpToolCall(call.name, call.args);
+                  responses.push({
+                    id: call.id,
+                    name: call.name,
+                    response: { result }
+                  });
+                } catch (err: any) {
+                  responses.push({
+                    id: call.id,
+                    name: call.name,
+                    response: { error: err.message || "Failed to execute tool" }
+                  });
+                }
+              }
+
+              if (responses.length > 0 && this.session) {
+                this.session.sendToolResponse(responses);
+              }
+            }
+          }
+        },
         // Fallback context in case resumption fails
         config: {
+          tools: toolsConfig,
           systemInstruction: this.getSystemInstruction(),
           speechConfig: {
               voiceConfig: { prebuiltVoiceConfig: { voiceName: this.id === 2 ? "Kore" : "Zephyr" } }
@@ -165,8 +202,7 @@ export class WorkerAgent {
 
       // Provide existing handle if we are reconnecting
       if (this.resumptionHandle) {
-        // Advanced Live API logic: resend handle... 
-        // Note: simplified representation for the current Gemini Live spec.
+        console.log(`Worker ${this.id} resuming with handle: ${this.resumptionHandle}`);
       }
 
     } catch (e) {
@@ -259,9 +295,9 @@ export class LiveOrchestrator {
         callbacks: {
           onmessage: async (message: LiveServerMessage) => {
             // Track resumption handles for resilience
-            // if (message.sessionResumptionUpdate?.handle) {
-            //    this.leadResumptionHandle = message.sessionResumptionUpdate.handle;
-            // }
+            if (message.sessionResumptionUpdate?.handle) {
+               this.leadResumptionHandle = message.sessionResumptionUpdate.handle;
+            }
 
             // Handle Lead Audio Out
             const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
