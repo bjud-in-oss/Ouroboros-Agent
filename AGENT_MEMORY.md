@@ -33,6 +33,9 @@ When updating existing files using the Drive API `multipart/related` method:
 - **Netlify Routing:** Single Page Applications (SPA) require a `public/_redirects` file (`/* /index.html 200`) to handle browser refreshes. This is generated automatically by `scripts/init-netlify.js`.
 - **Import Maps:** Do NOT use `<script type="importmap">` in `index.html`. Let Vite handle dependency resolution to avoid conflicts.
 
+### 5. The Snapshot Strategy
+Before any overwrite (PATCH) of the master app-data.json, a backup MUST be created (app-data.backup.json) using the createBackup function. This prevents data corruption during autonomous loops and ensures system memory safety.
+
 ## Active Modules
 - `services/geminiService.ts`: Neural Interface (Ouroboros Loop).
 - `services/driveService.ts`: Backend Persistence (Drive API v3) - **UPDATED** with Folder Awareness.
