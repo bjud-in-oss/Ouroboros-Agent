@@ -182,7 +182,10 @@ export class WorkerAgent {
                 if (call.name === 'completeTask') {
                   const { status, message } = call.args as any;
                   leadCallback(`Worker ${this.id} finished (${status}): ${message}`);
-                  if (this.onTaskComplete) this.onTaskComplete();
+                  if (this.onTaskComplete) {
+                    this.onTaskComplete();
+                    this.onTaskComplete = undefined;
+                  }
                   responses.push({ id: call.id, name: call.name, response: { acknowledged: true } });
                   continue;
                 }
@@ -195,11 +198,22 @@ export class WorkerAgent {
                     response: { result }
                   });
                 } catch (err: any) {
+                  const errorMessage = err.message || "Failed to execute tool";
                   responses.push({
                     id: call.id,
                     name: call.name,
-                    response: { error: err.message || "Failed to execute tool" }
+                    response: { error: errorMessage }
                   });
+                  
+                  // Fail-safe check for 3-strike hard crash
+                  if (errorMessage.includes("aborted task")) {
+                    leadCallback(`Worker ${this.id} hard-crashed on tool ${call.name}: ${errorMessage}`);
+                    if (this.onTaskComplete) {
+                      this.onTaskComplete();
+                      this.onTaskComplete = undefined;
+                    }
+                    // Reset active instruction via system interruption if possible, or effectively reset state
+                  }
                 }
               }
 
