@@ -108,24 +108,24 @@ export const safeSaveFocusFile = async (filename: string, content: string) => {
     }
     
     const multipartBody = 
-        \`--foo_bar_baz\\r\\n\` +
-        \`Content-Type: application/json; charset=UTF-8\\r\\n\\r\\n\` +
-        \`\${JSON.stringify(metadata)}\\r\\n\` +
-        \`--foo_bar_baz\\r\\n\` +
-        \`Content-Type: text/markdown\\r\\n\\r\\n\` +
-        \`\${content}\\r\\n\` +
-        \`--foo_bar_baz--\`;
+        "--foo_bar_baz\r\n" +
+        "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+        JSON.stringify(metadata) + "\r\n" +
+        "--foo_bar_baz\r\n" +
+        "Content-Type: text/markdown\r\n\r\n" +
+        content + "\r\n" +
+        "--foo_bar_baz--";
 
     const res = await fetch(url, {
       method,
       headers: {
-        'Authorization': \`Bearer \${accessToken}\`,
+        'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'multipart/related; boundary=foo_bar_baz'
       },
       body: multipartBody
     });
     
-    if (!res.ok) throw new Error(\`Failed to save \${filename}\`);
+    if (!res.ok) throw new Error(`Failed to save ${filename}`);
   });
 };
 
@@ -139,10 +139,11 @@ export class WorkerAgent {
   private session: any | null = null;
   private resumptionHandle: string | null = null;
   public onTaskComplete?: () => void;
+  public isBusy: boolean = false;
 
   constructor(id: number) {
     this.id = id;
-    this.filename = \`WORKER_\${id}_FOCUS.md\`;
+    this.filename = `WORKER_${id}_FOCUS.md`;
   }
 
   async initialize(leadCallback: (msg: any) => void) {
@@ -239,39 +240,40 @@ export class WorkerAgent {
       }
 
     } catch (e) {
-      console.error(\`Worker \${this.id} failed to connect. Re-fetching absolute truth...\`, e);
+      console.error(`Worker ${this.id} failed to connect. Re-fetching absolute truth...`, e);
       // Wait and backoff rebuild context from Drive...
       setTimeout(() => this.connect(leadCallback), 3000);
     }
   }
 
   private getSystemInstruction() {
-    return \`
-You are Worker Agent \${this.id}, a silent background coder.
+    return `
+You are Worker Agent ${this.id}, a silent background coder.
 
 THE SANDBOX LAW & ITERATION LIMITS:
 - You must NOT use the native Gemini codeExecution tool.
 - You must validate code modifications via an external Node.js/TypeScript sandbox using mcpService.
 - You have a maximum of 3 consecutive attempts to fix execution/linting errors. 
-- If you fail on the 3rd attempt, you MUST abort, log the failure block to your focus file (\${this.filename}), and escalate back to the Lead Agent.
+- If you fail on the 3rd attempt, you MUST abort, log the failure block to your focus file (${this.filename}), and escalate back to the Lead Agent.
 - MANDATORY: When all goals are met or if you abort/veto, you MUST formally yield control by calling the 'completeTask' tool.
 
 THE VETO PROTOCOL (MANDATORY DISSENT):
 - When receiving a task: "Only implement these features if you agree with the architectural and logical approach. Otherwise, report the problem and do NOT implement anything."
 - If you detect an architectural violation, logical flaw, or risk of infinite loop, you MUST exercise your Right to Veto. Halt execution, log the objection, and return an error payload to the Orchestrator.
-\`;
+`;
   }
 
   async delegateTask(instruction: string): Promise<any> {
+    this.isBusy = true;
     // Veto protocol explicitly injected
-    const fullInstruction = \`
+    const fullInstruction = `
 [DELEGATED TASK]
-\${instruction}
+${instruction}
 
 [VETO PROTOCOL REMINDER]
 Only implement these features if you agree with the architectural and logical approach. Otherwise, report the problem and do NOT implement anything. If you veto, explain exactly why.
-\`;
-    await safeSaveFocusFile(this.filename, \`# Active Task\n\${fullInstruction}\n\nStatus: Processing...\`);
+`;
+    await safeSaveFocusFile(this.filename, `# Active Task\n${fullInstruction}\n\nStatus: Processing...`);
     
     if (this.session) {
       this.session.sendRealtimeInput([{ text: fullInstruction }]);
@@ -289,8 +291,8 @@ Only implement these features if you agree with the architectural and logical ap
       } catch (err: any) {
         attempts++;
         if (attempts >= 3) {
-           await safeSaveFocusFile(this.filename, \`# ABORTED\nFailed after 3 attempts on tool \${name}.\nError: \${err.message}\`);
-           throw new Error(\`Worker \${this.id} aborted task after 3 sandbox failures.\`);
+           await safeSaveFocusFile(this.filename, `# ABORTED\nFailed after 3 attempts on tool ${name}.\nError: ${err.message}`);
+           throw new Error(`Worker ${this.id} aborted task after 3 sandbox failures.`);
         }
       }
     }
@@ -354,6 +356,18 @@ export class LiveOrchestrator {
                   const targetWorker = workerArg.workerId === 3 ? this.worker3 : this.worker2;
                   const lockedFiles: string[] = workerArg.lockedFiles || [];
                   
+                  if (targetWorker.isBusy) {
+                    responses.push({
+                      id: call.id,
+                      name: call.name,
+                      response: { 
+                        status: "rejected", 
+                        reason: `Worker ${targetWorker.id} is currently busy processing another task. Please wait for completion or assign to a different worker.` 
+                      }
+                    });
+                    continue;
+                  }
+
                   // 1. Check Mutex Locks
                   const conflictingFiles = lockedFiles.filter(f => this.scopeLocks.has(f) && this.scopeLocks.get(f) !== targetWorker.id);
 
@@ -379,11 +393,13 @@ export class LiveOrchestrator {
                     
                     // Route out of band & Register Callback
                     targetWorker.onTaskComplete = () => {
+                       targetWorker.isBusy = false;
                        lockedFiles.forEach(f => this.scopeLocks.delete(f));
                     };
                     
                     targetWorker.delegateTask(workerArg.taskInstruction).catch(err => {
                        this.injectToLead(`Worker ${targetWorker.id} HARD CRASH: ${err.message}`);
+                       targetWorker.isBusy = false;
                        lockedFiles.forEach(f => this.scopeLocks.delete(f));
                     });
                   }
@@ -432,7 +448,7 @@ export class LiveOrchestrator {
   }
 
   private getLeadSystemInstruction(): string {
-    return \`
+    return `
 You are the Lead Agent (Agent 1) in the Ouroboros Triad.
 You are the primary user interface. You DO NOT execute code or modify the app-data.json directly.
 When you receive coding tasks, prioritize delegating them using 'delegateToWorker'.
@@ -447,7 +463,7 @@ You must synthesize the user's request into a high-density structural brief cont
 3. Target file paths (if known).
 Additionally, you MUST request an exclusive mutex lock on the specific structural files using 'lockedFiles'.
 This ensures the Worker Agent's context window remains focused purely on execution without conversational noise.
-\`;
+`;
   }
 
   // Used by the frontend to send microphone audio to the lead session
@@ -463,7 +479,7 @@ This ensures the Worker Agent's context window remains focused purely on executi
   // Injects worker results into Lead's context asynchronously using ClientContent packaged as a system update
   private injectToLead(systemMessage: string) {
     if (this.leadSession) {
-      this.leadSession.sendRealtimeInput([{text: \`[SYSTEM UPDATE / WORKER RESULT]\n\${systemMessage}\`}]);
+      this.leadSession.sendRealtimeInput([{text: `[SYSTEM UPDATE / WORKER RESULT]\n${systemMessage}`}]);
     }
   }
 }

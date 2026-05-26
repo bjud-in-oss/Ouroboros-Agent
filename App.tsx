@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { INITIAL_MEMORY, INITIAL_FOCUS } from './constants';
 import { LongTermMemory, FocusLog, ChatMessage, AppData } from './types';
 import { processInteraction } from './services/geminiService';
+import { orchestrator } from './services/liveOrchestrator';
 import * as driveService from './services/driveService';
 import { mcpService } from './services/mcpService';
 import MemoryPanel from './components/MemoryPanel';
 import FocusPanel from './components/FocusPanel';
-import { Terminal, Trash2, Send, Cpu, HardDrive, Download, Cloud, LogIn, Bug, Wrench, Plug } from 'lucide-react';
+import { Terminal, Trash2, Send, Cpu, HardDrive, Download, Cloud, LogIn, Bug, Wrench, Plug, Mic, MicOff } from 'lucide-react';
 
 const App: React.FC = () => {
   // --- DEBUG BRIDGE START ---
@@ -31,6 +32,10 @@ const App: React.FC = () => {
   const [isDriveConnected, setIsDriveConnected] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [systemInjection, setSystemInjection] = useState<string | null>(null);
+  
+  // LIVE ENGINE STATE
+  const [isEngineActive, setIsEngineActive] = useState(false);
+  const [engineStatus, setEngineStatus] = useState<"Offline" | "Booting" | "Active" | "Error">("Offline");
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const hasCheckedGithub = useRef(false);
@@ -295,6 +300,30 @@ const App: React.FC = () => {
       }
   };
 
+  const handleToggleEngine = async () => {
+      if (isEngineActive) {
+          // Provide clean teardown logic eventually
+          setIsEngineActive(false);
+          setEngineStatus("Offline");
+          setMessages(prev => [...prev, { role: 'system', content: 'Orchestrator Engine Terminated.', timestamp: Date.now() }]);
+          return;
+      }
+
+      setEngineStatus("Booting");
+      setIsEngineActive(true);
+      try {
+          // Initialize Triad
+          await orchestrator.start();
+          setEngineStatus("Active");
+          setMessages(prev => [...prev, { role: 'system', content: 'Agent Triad (Orchestrator) is now Online. Listening for delegates...', timestamp: Date.now() }]);
+      } catch (e: any) {
+          console.error(e);
+          setEngineStatus("Error");
+          setIsEngineActive(false);
+          setMessages(prev => [...prev, { role: 'system', content: `Engine Boot Failure: ${e.message}`, timestamp: Date.now() }]);
+      }
+  };
+
   return (
     <div className="flex h-screen w-full bg-[#09090b] text-zinc-300 font-sans overflow-hidden">
       
@@ -344,6 +373,18 @@ const App: React.FC = () => {
                         <LogIn size={12} /> Connect
                     </button>
                 )}
+                <button
+                    onClick={handleToggleEngine}
+                    disabled={engineStatus === 'Booting'}
+                    className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-md transition-colors border ${
+                      isEngineActive 
+                        ? 'bg-red-900/40 text-red-400 border-red-800 hover:bg-red-900/60' 
+                        : 'bg-indigo-600/40 text-indigo-300 border-indigo-500 hover:bg-indigo-600/60'
+                    }`}
+                >
+                    {isEngineActive ? <MicOff size={12} /> : <Mic size={12} />} 
+                    {engineStatus === 'Booting' ? 'Booting...' : isEngineActive ? 'Terminate Triad' : 'Engage Triad'}
+                </button>
             </div>
         </div>
 
