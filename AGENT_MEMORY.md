@@ -83,3 +83,13 @@ Every task delegation from Agent 1 to Worker Agents must implicitly include a "C
 Rule: Workers are explicitly instructed: "Only implement these features if you agree with the architectural and logical approach. Otherwise, report the problem and do NOT implement anything."
 
 If a Worker detects an architectural violation, logical flaw, or risk of infinite loops, it must exercise its Right to Veto. It will immediately halt execution, log the specific technical objection, and return an error payload to Agent 1.
+
+7. Lifecycle Teardown & Native Git Rollbacks (CRITICAL):
+
+True Teardown: Deactivating the Orchestrator MUST invoke native SDK .close() or .disconnect() methods on all WebSockets (or equivalent aggressive cleanup). Setting session references to null is insufficient and causes zombie memory leaks.
+
+The Mute Directive: To save bandwidth, Workers are instructed to be MUTE via their system prompt. Architectural Note: This is a soft LLM guardrail that starves the audio encoder by preventing text output; it does not alter the underlying WebSocket binary protocol.
+
+Fail-Safe Git Rollbacks: If a Worker hard-crashes (3 strikes), the Orchestrator must execute a git restore <lockedFiles> command via mcpService to purge corrupted code.
+
+The Anti-Deadlock Guarantee: The Git Rollback command MUST be wrapped in an isolated try...catch block. The release of the Scope Mutex locks MUST be placed inside a finally block to guarantee files are unlocked even if the local MCP server lacks Git capabilities or throws an error.
