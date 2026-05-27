@@ -140,10 +140,48 @@ export class WorkerAgent {
   private resumptionHandle: string | null = null;
   public onTaskComplete?: (failed: boolean, errorMessage?: string) => void;
   public isBusy: boolean = false;
+  private watchdogTimer: NodeJS.Timeout | null = null;
 
   constructor(id: number) {
     this.id = id;
     this.filename = `WORKER_${id}_FOCUS.md`;
+  }
+
+  private startWatchdog() {
+    this.clearWatchdog();
+    this.watchdogTimer = setTimeout(() => this.triggerFatalWatchdog(), 45000);
+  }
+
+  private clearWatchdog() {
+    if (this.watchdogTimer) {
+      clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
+  }
+
+  private triggerFatalWatchdog() {
+    console.error(`Worker ${this.id} Watchdog triggered: 45 seconds of total inactivity.`);
+    
+    // 1. Immediately close the socket synchronously to prevent phantom frames
+    if (this.session) {
+      if (typeof this.session.close === 'function') this.session.close();
+      else if (typeof this.session.disconnect === 'function') this.session.disconnect();
+      this.session = null;
+    }
+
+    // 2. Extract the callback and clear it instantly
+    const taskCompleteCallback = this.onTaskComplete;
+    this.onTaskComplete = undefined;
+
+    // 3. Trigger rollbacks using the extracted callback
+    if (taskCompleteCallback) {
+        taskCompleteCallback(true, "Watchdog Intervention: Agent timed out due to total inactivity");
+    }
+
+    // 4. Perform remaining cleanup
+    this.resumptionHandle = null;
+    this.isBusy = false;
+    this.clearWatchdog();
   }
 
   async initialize(leadCallback: (msg: any) => void) {
@@ -176,6 +214,8 @@ export class WorkerAgent {
             }
 
             if (message.toolCall) {
+              this.clearWatchdog(); // Pause the watchdog right at the start of the toolCall block
+
               const calls = message.toolCall.functionCalls || [];
               const responses: any[] = [];
 
@@ -220,6 +260,9 @@ export class WorkerAgent {
 
               if (responses.length > 0 && this.session) {
                 this.session.sendToolResponse(responses);
+                if (this.isBusy) {
+                  this.startWatchdog(); // Restart watchdog only if the task has not completed
+                }
               }
             }
           }
@@ -283,12 +326,14 @@ Only implement these features if you agree with the architectural and logical ap
     
     if (this.session) {
       this.session.sendRealtimeInput([{ text: fullInstruction }]);
+      this.startWatchdog();
     }
     
     // Represents async processing...
   }
 
   async stop() {
+    this.clearWatchdog();
     if (this.session) {
       if (typeof this.session.close === 'function') this.session.close();
       else if (typeof this.session.disconnect === 'function') this.session.disconnect();

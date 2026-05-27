@@ -111,3 +111,13 @@ The Orchestrator must intercept delegations and immediately return a rejected To
 To maintain "Industrial Clarity" and prevent frontend memory bloat, the UI MUST NOT render raw LLM text streams from background workers.
 
 The Orchestrator broadcasts discrete state changes (Idle, Processing, Error, Lock Counts). The frontend visualizes this state purely through a minimalist "Terminal Rail HUD" (e.g., discrete status pills indicating current activity and active mutex locks).
+
+10. Activity-Based Idle Watchdog Guard (Anti-Freeze Protocol):
+
+To prevent background Workers from freezing the application when they fall into silent loops, the Orchestrator must enforce a programmatic inactivity watchdog.
+
+Instead of a static transaction timer, this watchdog measures *time elapsed since the last sign of life*.
+
+Every time a Worker receives new instructions (`delegateTask`) or successfully executes an MCP tool (`handleMcpToolCall`), the watchdog timer MUST be cleared and reset to 45 seconds.
+
+If a Worker falls into total silence for 45 consecutive seconds without executing any tools or emitting updates, the watchdog triggers the Execution Error pathway (`onTaskComplete(true, "Watchdog Intervention: Agent timed out due to total inactivity")`). This immediately invokes the `try...catch...finally` Git Rollback and forcefully strips the Mutex locks.
