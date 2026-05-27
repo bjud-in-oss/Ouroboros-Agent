@@ -140,6 +140,7 @@ export class WorkerAgent {
   private resumptionHandle: string | null = null;
   public onTaskComplete?: (failed: boolean, errorMessage?: string) => void;
   public isBusy: boolean = false;
+  public hasError: boolean = false;
   private watchdogTimer: NodeJS.Timeout | null = null;
 
   constructor(id: number) {
@@ -216,52 +217,55 @@ export class WorkerAgent {
             if (message.toolCall) {
               this.clearWatchdog(); // Pause the watchdog right at the start of the toolCall block
 
-              const calls = message.toolCall.functionCalls || [];
-              const responses: any[] = [];
+              try {
+                const calls = message.toolCall.functionCalls || [];
+                const responses: any[] = [];
 
-              for (const call of calls) {
-                if (call.name === 'completeTask') {
-                  const { status, message } = call.args as any;
-                  leadCallback(`Worker ${this.id} finished (${status}): ${message}`);
-                  if (this.onTaskComplete) {
-                    this.onTaskComplete(false);
-                    this.onTaskComplete = undefined;
-                  }
-                  responses.push({ id: call.id, name: call.name, response: { acknowledged: true } });
-                  continue;
-                }
-
-                try {
-                  const result = await this.handleMcpToolCall(call.name, call.args);
-                  responses.push({
-                    id: call.id,
-                    name: call.name,
-                    response: { result }
-                  });
-                } catch (err: any) {
-                  const errorMessage = err.message || "Failed to execute tool";
-                  responses.push({
-                    id: call.id,
-                    name: call.name,
-                    response: { error: errorMessage }
-                  });
-                  
-                  // Fail-safe check for 3-strike hard crash
-                  if (errorMessage.includes("aborted task")) {
-                    leadCallback(`Worker ${this.id} hard-crashed on tool ${call.name}: ${errorMessage}`);
+                for (const call of calls) {
+                  if (call.name === 'completeTask') {
+                    const { status, message } = call.args as any;
+                    leadCallback(`Worker ${this.id} finished (${status}): ${message}`);
                     if (this.onTaskComplete) {
-                      this.onTaskComplete(true, errorMessage);
+                      this.onTaskComplete(false);
                       this.onTaskComplete = undefined;
                     }
-                    // Reset active instruction via system interruption if possible, or effectively reset state
+                    responses.push({ id: call.id, name: call.name, response: { acknowledged: true } });
+                    continue;
+                  }
+
+                  try {
+                    const result = await this.handleMcpToolCall(call.name, call.args);
+                    responses.push({
+                      id: call.id,
+                      name: call.name,
+                      response: { result }
+                    });
+                  } catch (err: any) {
+                    const errorMessage = err.message || "Failed to execute tool";
+                    responses.push({
+                      id: call.id,
+                      name: call.name,
+                      response: { error: errorMessage }
+                    });
+                    
+                    // Fail-safe check for 3-strike hard crash
+                    if (errorMessage.includes("aborted task")) {
+                      leadCallback(`Worker ${this.id} hard-crashed on tool ${call.name}: ${errorMessage}`);
+                      if (this.onTaskComplete) {
+                        this.onTaskComplete(true, errorMessage);
+                        this.onTaskComplete = undefined;
+                      }
+                      // Reset active instruction via system interruption if possible, or effectively reset state
+                    }
                   }
                 }
-              }
 
-              if (responses.length > 0 && this.session) {
-                this.session.sendToolResponse(responses);
+                if (responses.length > 0 && this.session) {
+                  this.session.sendToolResponse(responses);
+                }
+              } finally {
                 if (this.isBusy) {
-                  this.startWatchdog(); // Restart watchdog only if the task has not completed
+                  this.startWatchdog(); // Restart watchdog safely guaranteed
                 }
               }
             }
@@ -341,6 +345,7 @@ Only implement these features if you agree with the architectural and logical ap
     }
     this.resumptionHandle = null;
     this.isBusy = false;
+    this.hasError = false;
     this.onTaskComplete = undefined;
   }
 
@@ -395,12 +400,13 @@ export class LiveOrchestrator {
       this.scopeLocks.forEach((workerId, file) => {
         if (workerId === w.id) locks.push(file.split('/').pop() || file); // just show filenames
       });
-      return { id: w.id, status: w.isBusy ? 'Processing' : 'Error', activeLocks: locks };
+      return { id: w.id, status: w.hasError ? 'Error' : w.isBusy ? 'Processing' : 'Idle', activeLocks: locks };
     };
+    
     // Proper reassignment (creates new array literal mapping to ensure React renders)
     this.onWorkerStatusChange([
-      { id: this.worker2.id, status: this.worker2.isBusy ? 'Processing' : 'Idle', activeLocks: getWorkerState(this.worker2).activeLocks },
-      { id: this.worker3.id, status: this.worker3.isBusy ? 'Processing' : 'Idle', activeLocks: getWorkerState(this.worker3).activeLocks }
+      getWorkerState(this.worker2),
+      getWorkerState(this.worker3)
     ]);
   }
 
@@ -429,10 +435,12 @@ export class LiveOrchestrator {
 
       // Route out of band & Register Callback
       targetWorker.isBusy = true;
+      targetWorker.hasError = false;
       this.broadcastWorkerStatus();
       
       targetWorker.onTaskComplete = async (failed: boolean, errorMessage?: string) => {
           if (failed) {
+              targetWorker.hasError = true;
               this.injectToLead(`Worker ${targetWorker.id} HARD CRASH: ${errorMessage}. Rolling back locked files.`);
               
               try {
@@ -448,6 +456,7 @@ export class LiveOrchestrator {
                   this.broadcastWorkerStatus();
               }
           } else {
+              targetWorker.hasError = false;
               targetWorker.isBusy = false;
               lockedFiles.forEach(f => this.scopeLocks.delete(f));
               this.broadcastWorkerStatus();
@@ -456,6 +465,7 @@ export class LiveOrchestrator {
       
       targetWorker.delegateTask(taskInstruction).catch(err => {
           console.error(`[Orchestrator] Submission Error assigning task to Worker ${targetWorker.id}:`, err.message);
+          targetWorker.hasError = true;
           targetWorker.isBusy = false;
           lockedFiles.forEach(f => this.scopeLocks.delete(f));
           this.broadcastWorkerStatus();
