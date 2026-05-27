@@ -390,17 +390,18 @@ export class LiveOrchestrator {
       targetWorker.delegateTask(taskInstruction).catch(async err => {
           this.injectToLead(`Worker ${targetWorker.id} HARD CRASH: ${err.message}. Rolling back locked files.`);
           
-          if (lockedFiles.length > 0) {
-              try {
-                  await mcpService.executeTool('shell_exec', { command: `git restore ${lockedFiles.join(' ')}` });
-              } catch (gitErr) {
-                  console.error("Git restore failed:", gitErr);
+          try {
+              if (lockedFiles.length > 0) {
+                  const quotedFiles = lockedFiles.map(f => `"${f}"`).join(' ');
+                  await mcpService.executeTool('shell_exec', { command: `git restore ${quotedFiles}` });
               }
+          } catch (gitErr) {
+              console.error("Git restore failed:", gitErr);
+          } finally {
+              targetWorker.isBusy = false;
+              lockedFiles.forEach(f => this.scopeLocks.delete(f));
+              this.broadcastWorkerStatus();
           }
-
-          targetWorker.isBusy = false;
-          lockedFiles.forEach(f => this.scopeLocks.delete(f));
-          this.broadcastWorkerStatus();
       });
 
       return { status: "queued", message: `Task delegated successfully. Mutex acquired on ${lockedFiles.length} specific files.` };
