@@ -94,6 +94,12 @@ Fail-Safe Git Rollbacks: If a Worker hard-crashes (3 strikes), the Orchestrator 
 
 The Anti-Deadlock Guarantee: The Git Rollback command MUST be wrapped in an isolated try...catch block. The release of the Scope Mutex locks MUST be placed inside a finally block to guarantee files are unlocked even if the local MCP server lacks Git capabilities or throws an error.
 
+Event-Driven Error Bifurcation: The Orchestrator must handle two distinct failure vectors to prevent deadlocks:
+
+Submission Errors (Synchronous): Handled via a .catch() block directly on the delegateTask() call. If a worker rejects the task instantly (e.g., offline), immediately release Mutex locks (No Git Rollback needed).
+
+Execution Errors (Asynchronous): Handled via an event-driven onTaskComplete(failed: boolean) callback. If the worker hard-crashes during execution, execute the isolated try...catch...finally Git Rollback logic here.
+
 8. Worker Concurrency (The Busy Flag):
 
 To prevent the "Overworked Agent" race condition (where Agent 1 rapidly delegates multiple tasks to the same worker), each Worker MUST maintain a strict isBusy boolean state.
