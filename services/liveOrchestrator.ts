@@ -283,6 +283,17 @@ Only implement these features if you agree with the architectural and logical ap
     // Represents async processing...
   }
 
+  async stop() {
+    if (this.session) {
+      if (typeof this.session.close === 'function') this.session.close();
+      else if (typeof this.session.disconnect === 'function') this.session.disconnect();
+      this.session = null;
+    }
+    this.resumptionHandle = null;
+    this.isBusy = false;
+    this.onTaskComplete = undefined;
+  }
+
   async handleMcpToolCall(name: string, args: any) {
     let attempts = 0;
     while (attempts < 3) {
@@ -376,8 +387,17 @@ export class LiveOrchestrator {
           this.broadcastWorkerStatus();
       };
       
-      targetWorker.delegateTask(taskInstruction).catch(err => {
-          this.injectToLead(`Worker ${targetWorker.id} HARD CRASH: ${err.message}`);
+      targetWorker.delegateTask(taskInstruction).catch(async err => {
+          this.injectToLead(`Worker ${targetWorker.id} HARD CRASH: ${err.message}. Rolling back locked files.`);
+          
+          if (lockedFiles.length > 0) {
+              try {
+                  await mcpService.executeTool('shell_exec', { command: `git restore ${lockedFiles.join(' ')}` });
+              } catch (gitErr) {
+                  console.error("Git restore failed:", gitErr);
+              }
+          }
+
           targetWorker.isBusy = false;
           lockedFiles.forEach(f => this.scopeLocks.delete(f));
           this.broadcastWorkerStatus();
@@ -390,6 +410,19 @@ export class LiveOrchestrator {
     await this.worker2.initialize((msg) => this.injectToLead(msg));
     await this.worker3.initialize((msg) => this.injectToLead(msg));
     await this.connectLead(true);
+    this.broadcastWorkerStatus();
+  }
+
+  async stop() {
+    if (this.leadSession) {
+      if (typeof this.leadSession.close === 'function') this.leadSession.close();
+      else if (typeof this.leadSession.disconnect === 'function') this.leadSession.disconnect();
+      this.leadSession = null;
+    }
+    this.leadResumptionHandle = null;
+    await this.worker2.stop();
+    await this.worker3.stop();
+    this.scopeLocks.clear();
     this.broadcastWorkerStatus();
   }
 

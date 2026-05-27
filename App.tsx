@@ -313,6 +313,7 @@ const App: React.FC = () => {
   const handleToggleEngine = async () => {
       if (isEngineActive) {
           // Provide clean teardown logic eventually
+          await orchestrator.stop();
           setIsEngineActive(false);
           setEngineStatus("Offline");
           setWorkerStatuses([]);
