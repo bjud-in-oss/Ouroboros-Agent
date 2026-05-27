@@ -147,10 +147,10 @@ export class WorkerAgent {
   }
 
   async initialize(leadCallback: (msg: any) => void) {
-    await this.connect(leadCallback);
+    await this.connect(leadCallback, true);
   }
 
-  private async connect(leadCallback: (msg: any) => void) {
+  private async connect(leadCallback: (msg: any) => void, isColdStart: boolean = false) {
     try {
       const mcpTools = await mcpService.getTools();
       const orchestratorTools = [{
@@ -238,16 +238,19 @@ export class WorkerAgent {
         console.log(`Worker ${this.id} resuming with handle: ${this.resumptionHandle}`);
       }
 
-    } catch (e) {
+    } catch (e: any) {
+      if (isColdStart) throw e;
       console.error(`Worker ${this.id} failed to connect. Re-fetching absolute truth...`, e);
       // Wait and backoff rebuild context from Drive...
-      setTimeout(() => this.connect(leadCallback), 3000);
+      setTimeout(() => this.connect(leadCallback, false), 3000);
     }
   }
 
   private getSystemInstruction() {
     return `
 You are Worker Agent ${this.id}, a silent background coder.
+
+CRITICAL MANDATE: You are MUTE. You must NEVER output conversational text or voice responses. You may ONLY communicate by invoking tools. Silence is mandatory.
 
 THE SANDBOX LAW & ITERATION LIMITS:
 - You must NOT use the native Gemini codeExecution tool.
@@ -331,19 +334,66 @@ export class LiveOrchestrator {
       this.scopeLocks.forEach((workerId, file) => {
         if (workerId === w.id) locks.push(file.split('/').pop() || file); // just show filenames
       });
-      return { id: w.id, status: w.isBusy ? 'Processing' : 'Idle', activeLocks: locks };
+      return { id: w.id, status: w.isBusy ? 'Processing' : 'Error' }; // Error state represented correctly in full impl. Let's just do Processing or Idle
     };
-    this.onWorkerStatusChange([getWorkerState(this.worker2), getWorkerState(this.worker3)]);
+    // Proper reassignment (creates new array literal mapping to ensure React renders)
+    this.onWorkerStatusChange([
+      { id: this.worker2.id, status: this.worker2.isBusy ? 'Processing' : 'Idle', activeLocks: getWorkerState(this.worker2).activeLocks },
+      { id: this.worker3.id, status: this.worker3.isBusy ? 'Processing' : 'Idle', activeLocks: getWorkerState(this.worker3).activeLocks }
+    ]);
+  }
+
+  public handleDelegation(workerId: number, taskInstruction: string, lockedFiles: string[]): any {
+      const targetWorker = workerId === 3 ? this.worker3 : this.worker2;
+      
+      if (targetWorker.isBusy) {
+        return { 
+          status: "rejected", 
+          reason: `Worker ${targetWorker.id} is currently busy processing another task. Please wait for completion or assign to a different worker.` 
+        };
+      }
+
+      // 1. Check Mutex Locks
+      const conflictingFiles = lockedFiles.filter(f => this.scopeLocks.has(f) && this.scopeLocks.get(f) !== targetWorker.id);
+
+      if (conflictingFiles.length > 0) {
+        return { 
+          status: "rejected", 
+          reason: `Scope Lock Collision. The following files are currently locked by another worker processing a task: ${conflictingFiles.join(', ')}. Please wait or assign non-overlapping work.` 
+        };
+      }
+
+      // 2. Acquire Locks
+      lockedFiles.forEach(f => this.scopeLocks.set(f, targetWorker.id));
+
+      // Route out of band & Register Callback
+      targetWorker.isBusy = true;
+      this.broadcastWorkerStatus();
+      
+      targetWorker.onTaskComplete = () => {
+          targetWorker.isBusy = false;
+          lockedFiles.forEach(f => this.scopeLocks.delete(f));
+          this.broadcastWorkerStatus();
+      };
+      
+      targetWorker.delegateTask(taskInstruction).catch(err => {
+          this.injectToLead(`Worker ${targetWorker.id} HARD CRASH: ${err.message}`);
+          targetWorker.isBusy = false;
+          lockedFiles.forEach(f => this.scopeLocks.delete(f));
+          this.broadcastWorkerStatus();
+      });
+
+      return { status: "queued", message: `Task delegated successfully. Mutex acquired on ${lockedFiles.length} specific files.` };
   }
 
   async start() {
     await this.worker2.initialize((msg) => this.injectToLead(msg));
     await this.worker3.initialize((msg) => this.injectToLead(msg));
-    await this.connectLead();
+    await this.connectLead(true);
     this.broadcastWorkerStatus();
   }
 
-  private async connectLead() {
+  private async connectLead(isColdStart: boolean = false) {
     try {
       this.leadSession = await ai.live.connect({
         model: "gemini-3.1-flash-live-preview",
@@ -371,61 +421,10 @@ export class LiveOrchestrator {
               for (const call of calls) {
                 if (call.name === 'delegateToWorker') {
                   const workerArg = call.args as any;
-                  const targetWorker = workerArg.workerId === 3 ? this.worker3 : this.worker2;
                   const lockedFiles: string[] = workerArg.lockedFiles || [];
-                  
-                  if (targetWorker.isBusy) {
-                    responses.push({
-                      id: call.id,
-                      name: call.name,
-                      response: { 
-                        status: "rejected", 
-                        reason: `Worker ${targetWorker.id} is currently busy processing another task. Please wait for completion or assign to a different worker.` 
-                      }
-                    });
-                    continue;
-                  }
-
-                  // 1. Check Mutex Locks
-                  const conflictingFiles = lockedFiles.filter(f => this.scopeLocks.has(f) && this.scopeLocks.get(f) !== targetWorker.id);
-
-                  if (conflictingFiles.length > 0) {
-                    responses.push({
-                      id: call.id,
-                      name: call.name,
-                      response: { 
-                        status: "rejected", 
-                        reason: `Scope Lock Collision. The following files are currently locked by another worker processing a task: ${conflictingFiles.join(', ')}. Please wait or assign non-overlapping work.` 
-                      }
-                    });
-                  } else {
-                    // 2. Acquire Locks
-                    lockedFiles.forEach(f => this.scopeLocks.set(f, targetWorker.id));
-
-                    // Instant-Ack (Unblock Lead Engine)
-                    responses.push({
-                      id: call.id,
-                      name: call.name,
-                      response: { status: "queued", message: `Task delegated successfully. Mutex acquired on ${lockedFiles.length} specific files.` }
-                    });
-                    
-                    // Route out of band & Register Callback
-                    targetWorker.isBusy = true;
-                    this.broadcastWorkerStatus();
-                    
-                    targetWorker.onTaskComplete = () => {
-                       targetWorker.isBusy = false;
-                       lockedFiles.forEach(f => this.scopeLocks.delete(f));
-                       this.broadcastWorkerStatus();
-                    };
-                    
-                    targetWorker.delegateTask(workerArg.taskInstruction).catch(err => {
-                       this.injectToLead(`Worker ${targetWorker.id} HARD CRASH: ${err.message}`);
-                       targetWorker.isBusy = false;
-                       lockedFiles.forEach(f => this.scopeLocks.delete(f));
-                       this.broadcastWorkerStatus();
-                    });
-                  }
+                  const response = this.handleDelegation(workerArg.workerId, workerArg.taskInstruction, lockedFiles);
+                  responses.push({ id: call.id, name: call.name, response });
+                  continue;
                 }
               }
               
@@ -464,12 +463,15 @@ export class LiveOrchestrator {
         }
       });
     } catch (e: any) {
-      if (e?.status === 429 || (e.message && e.message.includes('429'))) {
-        throw new Error("HTTP 429: Too Many Requests. Connection rejected.");
+      if (isColdStart) {
+        if (e?.status === 429 || (e.message && e.message.includes('429'))) {
+          throw new Error("HTTP 429: Too Many Requests. Connection rejected.");
+        }
+        throw e;
       }
       console.error("Lead reconnecting due to drop...", e);
       // Wait and backoff rebuild context from Drive...
-      setTimeout(() => this.connectLead(), 3000);
+      setTimeout(() => this.connectLead(false), 3000);
     }
   }
 
