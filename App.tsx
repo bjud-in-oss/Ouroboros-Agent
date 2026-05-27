@@ -419,34 +419,34 @@ const App: React.FC = () => {
         {/* MOCK DELEGATOR UI */}
         {isEngineActive && (
             <div className="bg-[#121214] border-b border-zinc-800 p-2 flex items-center justify-between shrink-0 shadow-md">
-               <div className="flex items-center gap-3 w-full">
-                   <div className="flex items-center gap-1.5 text-zinc-500 min-w-max ml-2">
-                       <Cpu size={14} /> 
-                       <span className="text-xs font-mono uppercase">Mock Delegate</span>
+               <div className="flex items-center gap-2 w-full">
+                   <div className="flex items-center gap-1 text-zinc-500 ml-1 shrink-0 hidden xl:flex">
+                       <Cpu size={12} /> 
+                       <span className="text-[10px] font-mono uppercase">Mock</span>
                    </div>
                    <input 
                        type="text" 
                        value={mockTask}
                        onChange={e => setMockTask(e.target.value)}
-                       placeholder="Test Task Instruction..."
-                       className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-3 py-1.5 text-xs outline-none focus:border-indigo-500/50 transition-colors"
+                       placeholder="Task..."
+                       className="flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-[11px] outline-none focus:border-indigo-500/50 transition-colors"
                    />
                    <input 
                        type="text" 
                        value={mockFiles}
                        onChange={e => setMockFiles(e.target.value)}
-                       placeholder="app-data.json"
-                       className="w-48 bg-zinc-900 border border-zinc-800 rounded px-3 py-1.5 text-xs outline-none focus:border-indigo-500/50 transition-colors"
+                       placeholder="file.js"
+                       className="w-16 min-w-0 shrink-0 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-[11px] outline-none focus:border-indigo-500/50 transition-colors"
                    />
-                   <div className="flex gap-1.5 mr-2">
+                   <div className="flex gap-1 shrink-0 pr-1">
                        <button onClick={() => {
                            const files = mockFiles.split(',').map(s => s.trim()).filter(Boolean);
                            orchestrator.handleDelegation(2, mockTask, files);
-                       }} className="bg-amber-900/30 border border-amber-900/50 text-amber-500 hover:bg-amber-900/60 transition-colors px-3 py-1.5 rounded text-xs font-mono">W2</button>
+                       }} className="bg-amber-900/30 border border-amber-900/50 text-amber-500 hover:bg-amber-900/60 transition-colors px-2 py-1 rounded text-[11px] font-mono">W2</button>
                        <button onClick={() => {
                            const files = mockFiles.split(',').map(s => s.trim()).filter(Boolean);
                            orchestrator.handleDelegation(3, mockTask, files);
-                       }} className="bg-amber-900/30 border border-amber-900/50 text-amber-500 hover:bg-amber-900/60 transition-colors px-3 py-1.5 rounded text-xs font-mono">W3</button>
+                       }} className="bg-amber-900/30 border border-amber-900/50 text-amber-500 hover:bg-amber-900/60 transition-colors px-2 py-1 rounded text-[11px] font-mono">W3</button>
                    </div>
                </div>
             </div>
