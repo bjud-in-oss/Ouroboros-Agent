@@ -148,6 +148,10 @@ export class WorkerAgent {
     this.filename = `WORKER_${id}_FOCUS.md`;
   }
 
+  public get isConnected(): boolean {
+    return this.session !== null;
+  }
+
   private startWatchdog() {
     this.clearWatchdog();
     this.watchdogTimer = setTimeout(() => this.triggerFatalWatchdog(), 45000);
@@ -410,9 +414,20 @@ export class LiveOrchestrator {
     ]);
   }
 
-  public handleDelegation(workerId: number, taskInstruction: string, lockedFiles: string[]): any {
+  public async handleDelegation(workerId: number, taskInstruction: string, lockedFiles: string[]): Promise<any> {
       const targetWorker = workerId === 3 ? this.worker3 : this.worker2;
       
+      if (!targetWorker.isConnected) {
+        try {
+          await targetWorker.initialize((msg) => this.injectToLead(msg));
+        } catch (e: any) {
+          return {
+            status: "rejected",
+            reason: `Worker ${targetWorker.id} failed to reconnect: ${e.message}`
+          };
+        }
+      }
+
       if (targetWorker.isBusy) {
         return { 
           status: "rejected", 
@@ -523,7 +538,7 @@ export class LiveOrchestrator {
                 if (call.name === 'delegateToWorker') {
                   const workerArg = call.args as any;
                   const lockedFiles: string[] = workerArg.lockedFiles || [];
-                  const response = this.handleDelegation(workerArg.workerId, workerArg.taskInstruction, lockedFiles);
+                  const response = await this.handleDelegation(workerArg.workerId, workerArg.taskInstruction, lockedFiles);
                   responses.push({ id: call.id, name: call.name, response });
                   continue;
                 }
