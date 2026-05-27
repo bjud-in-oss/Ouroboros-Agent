@@ -93,3 +93,15 @@ The Mute Directive: To save bandwidth, Workers are instructed to be MUTE via the
 Fail-Safe Git Rollbacks: If a Worker hard-crashes (3 strikes), the Orchestrator must execute a git restore <lockedFiles> command via mcpService to purge corrupted code.
 
 The Anti-Deadlock Guarantee: The Git Rollback command MUST be wrapped in an isolated try...catch block. The release of the Scope Mutex locks MUST be placed inside a finally block to guarantee files are unlocked even if the local MCP server lacks Git capabilities or throws an error.
+
+8. Worker Concurrency (The Busy Flag):
+
+To prevent the "Overworked Agent" race condition (where Agent 1 rapidly delegates multiple tasks to the same worker), each Worker MUST maintain a strict isBusy boolean state.
+
+The Orchestrator must intercept delegations and immediately return a rejected ToolResponse to Agent 1 if the target worker is already busy.
+
+9. The Telemetry Paradigm (Terminal Rail HUD):
+
+To maintain "Industrial Clarity" and prevent frontend memory bloat, the UI MUST NOT render raw LLM text streams from background workers.
+
+The Orchestrator broadcasts discrete state changes (Idle, Processing, Error, Lock Counts). The frontend visualizes this state purely through a minimalist "Terminal Rail HUD" (e.g., discrete status pills indicating current activity and active mutex locks).
