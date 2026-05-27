@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { INITIAL_MEMORY, INITIAL_FOCUS } from './constants';
 import { LongTermMemory, FocusLog, ChatMessage, AppData } from './types';
 import { processInteraction } from './services/geminiService';
-import { orchestrator } from './services/liveOrchestrator';
+import { orchestrator, WorkerStatus } from './services/liveOrchestrator';
 import * as driveService from './services/driveService';
 import { mcpService } from './services/mcpService';
 import MemoryPanel from './components/MemoryPanel';
@@ -36,6 +36,7 @@ const App: React.FC = () => {
   // LIVE ENGINE STATE
   const [isEngineActive, setIsEngineActive] = useState(false);
   const [engineStatus, setEngineStatus] = useState<"Offline" | "Booting" | "Active" | "Error">("Offline");
+  const [workerStatuses, setWorkerStatuses] = useState<WorkerStatus[]>([]);
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const hasCheckedGithub = useRef(false);
@@ -48,6 +49,11 @@ const App: React.FC = () => {
       console.log("Google Scripts Loaded");
       // Optionally try silent auth here if we had persistence logic for sessions
     });
+    
+    // Subscribe to Orchestrator HUD events
+    orchestrator.onWorkerStatusChange = (statuses) => {
+      setWorkerStatuses([...statuses]);
+    };
   }, []);
 
   // GitHub Wake-up Protocol
@@ -305,6 +311,7 @@ const App: React.FC = () => {
           // Provide clean teardown logic eventually
           setIsEngineActive(false);
           setEngineStatus("Offline");
+          setWorkerStatuses([]);
           setMessages(prev => [...prev, { role: 'system', content: 'Orchestrator Engine Terminated.', timestamp: Date.now() }]);
           return;
       }
@@ -373,6 +380,22 @@ const App: React.FC = () => {
                         <LogIn size={12} /> Connect
                     </button>
                 )}
+                
+                {/* Terminal Rail HUD */}
+                {isEngineActive && workerStatuses.map(w => (
+                    <div key={w.id} className={`flex items-center gap-1.5 px-2 py-1 rounded border text-[10px] uppercase tracking-wider font-mono ${
+                        w.status === 'Processing' ? 'bg-amber-900/30 text-amber-500 border-amber-800/50' :
+                        w.status === 'Error' ? 'bg-red-900/30 text-red-500 border-red-800/50' :
+                        'bg-zinc-800/50 text-zinc-500 border-zinc-700/50'
+                    }`}>
+                        <span>W{w.id}</span>
+                        {w.status === 'Processing' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>}
+                        {w.status === 'Processing' && w.activeLocks.length > 0 && (
+                            <span className="text-amber-600/70 ml-1">🔒 {w.activeLocks.length}</span>
+                        )}
+                    </div>
+                ))}
+
                 <button
                     onClick={handleToggleEngine}
                     disabled={engineStatus === 'Booting'}

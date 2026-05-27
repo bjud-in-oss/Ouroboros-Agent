@@ -228,7 +228,6 @@ export class WorkerAgent {
         config: {
           tools: toolsConfig,
           systemInstruction: this.getSystemInstruction(),
-          responseModalities: [Modality.TEXT],
           // WORKER RULE: VAD disabled
           automaticActivityDetection: false,
         }
@@ -264,7 +263,6 @@ THE VETO PROTOCOL (MANDATORY DISSENT):
   }
 
   async delegateTask(instruction: string): Promise<any> {
-    this.isBusy = true;
     // Veto protocol explicitly injected
     const fullInstruction = `
 [DELEGATED TASK]
@@ -303,6 +301,12 @@ Only implement these features if you agree with the architectural and logical ap
 // LEAD AGENT & ORCHESTRATOR
 // ==========================================
 
+export type WorkerStatus = {
+  id: number;
+  status: 'Idle' | 'Processing' | 'Error';
+  activeLocks: string[];
+};
+
 export class LiveOrchestrator {
   private leadSession: any | null = null;
   private worker2: WorkerAgent;
@@ -313,16 +317,30 @@ export class LiveOrchestrator {
   // Callback to push audio/status back to UI
   public onAudioChunk?: (base64Audio: string) => void;
   public onInterrupted?: () => void;
+  public onWorkerStatusChange?: (status: WorkerStatus[]) => void;
 
   constructor() {
     this.worker2 = new WorkerAgent(2);
     this.worker3 = new WorkerAgent(3);
   }
 
+  private broadcastWorkerStatus() {
+    if (!this.onWorkerStatusChange) return;
+    const getWorkerState = (w: WorkerAgent): WorkerStatus => {
+      const locks: string[] = [];
+      this.scopeLocks.forEach((workerId, file) => {
+        if (workerId === w.id) locks.push(file.split('/').pop() || file); // just show filenames
+      });
+      return { id: w.id, status: w.isBusy ? 'Processing' : 'Idle', activeLocks: locks };
+    };
+    this.onWorkerStatusChange([getWorkerState(this.worker2), getWorkerState(this.worker3)]);
+  }
+
   async start() {
     await this.worker2.initialize((msg) => this.injectToLead(msg));
     await this.worker3.initialize((msg) => this.injectToLead(msg));
     await this.connectLead();
+    this.broadcastWorkerStatus();
   }
 
   private async connectLead() {
@@ -392,15 +410,20 @@ export class LiveOrchestrator {
                     });
                     
                     // Route out of band & Register Callback
+                    targetWorker.isBusy = true;
+                    this.broadcastWorkerStatus();
+                    
                     targetWorker.onTaskComplete = () => {
                        targetWorker.isBusy = false;
                        lockedFiles.forEach(f => this.scopeLocks.delete(f));
+                       this.broadcastWorkerStatus();
                     };
                     
                     targetWorker.delegateTask(workerArg.taskInstruction).catch(err => {
                        this.injectToLead(`Worker ${targetWorker.id} HARD CRASH: ${err.message}`);
                        targetWorker.isBusy = false;
                        lockedFiles.forEach(f => this.scopeLocks.delete(f));
+                       this.broadcastWorkerStatus();
                     });
                   }
                 }
@@ -441,6 +464,9 @@ export class LiveOrchestrator {
         }
       });
     } catch (e: any) {
+      if (e?.status === 429 || (e.message && e.message.includes('429'))) {
+        throw new Error("HTTP 429: Too Many Requests. Connection rejected.");
+      }
       console.error("Lead reconnecting due to drop...", e);
       // Wait and backoff rebuild context from Drive...
       setTimeout(() => this.connectLead(), 3000);
