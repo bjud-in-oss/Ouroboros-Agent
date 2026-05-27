@@ -395,7 +395,7 @@ const App: React.FC = () => {
                     }`}>
                         <span>W{w.id}</span>
                         {w.status === 'Processing' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>}
-                        {w.status === 'Processing' && w.activeLocks.length > 0 && (
+                        {w.status === 'Processing' && w.activeLocks && w.activeLocks.length > 0 && (
                             <span className="text-amber-600/70 ml-1">🔒 {w.activeLocks.length}</span>
                         )}
                     </div>

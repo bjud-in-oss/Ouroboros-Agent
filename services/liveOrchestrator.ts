@@ -345,7 +345,7 @@ export class LiveOrchestrator {
       this.scopeLocks.forEach((workerId, file) => {
         if (workerId === w.id) locks.push(file.split('/').pop() || file); // just show filenames
       });
-      return { id: w.id, status: w.isBusy ? 'Processing' : 'Error' }; // Error state represented correctly in full impl. Let's just do Processing or Idle
+      return { id: w.id, status: w.isBusy ? 'Processing' : 'Error', activeLocks: locks };
     };
     // Proper reassignment (creates new array literal mapping to ensure React renders)
     this.onWorkerStatusChange([
