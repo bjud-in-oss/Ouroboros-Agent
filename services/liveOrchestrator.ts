@@ -138,7 +138,7 @@ export class WorkerAgent {
   public filename: string;
   private session: any | null = null;
   private resumptionHandle: string | null = null;
-  public onTaskComplete?: () => void;
+  public onTaskComplete?: (failed: boolean, errorMessage?: string) => void;
   public isBusy: boolean = false;
 
   constructor(id: number) {
@@ -184,7 +184,7 @@ export class WorkerAgent {
                   const { status, message } = call.args as any;
                   leadCallback(`Worker ${this.id} finished (${status}): ${message}`);
                   if (this.onTaskComplete) {
-                    this.onTaskComplete();
+                    this.onTaskComplete(false);
                     this.onTaskComplete = undefined;
                   }
                   responses.push({ id: call.id, name: call.name, response: { acknowledged: true } });
@@ -210,7 +210,7 @@ export class WorkerAgent {
                   if (errorMessage.includes("aborted task")) {
                     leadCallback(`Worker ${this.id} hard-crashed on tool ${call.name}: ${errorMessage}`);
                     if (this.onTaskComplete) {
-                      this.onTaskComplete();
+                      this.onTaskComplete(true, errorMessage);
                       this.onTaskComplete = undefined;
                     }
                     // Reset active instruction via system interruption if possible, or effectively reset state
@@ -226,6 +226,7 @@ export class WorkerAgent {
         },
         // Fallback context in case resumption fails
         config: {
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: this.id === 3 ? "Fenrir" : "Kore" } } },
           tools: toolsConfig,
           systemInstruction: this.getSystemInstruction(),
           // WORKER RULE: VAD disabled
@@ -266,6 +267,10 @@ THE VETO PROTOCOL (MANDATORY DISSENT):
   }
 
   async delegateTask(instruction: string): Promise<any> {
+    if (!this.session) {
+      throw new Error(`Worker ${this.id} is currently offline or reconnecting.`);
+    }
+
     // Veto protocol explicitly injected
     const fullInstruction = `
 [DELEGATED TASK]
@@ -381,27 +386,34 @@ export class LiveOrchestrator {
       targetWorker.isBusy = true;
       this.broadcastWorkerStatus();
       
-      targetWorker.onTaskComplete = () => {
-          targetWorker.isBusy = false;
-          lockedFiles.forEach(f => this.scopeLocks.delete(f));
-          this.broadcastWorkerStatus();
-      };
-      
-      targetWorker.delegateTask(taskInstruction).catch(async err => {
-          this.injectToLead(`Worker ${targetWorker.id} HARD CRASH: ${err.message}. Rolling back locked files.`);
-          
-          try {
-              if (lockedFiles.length > 0) {
-                  const quotedFiles = lockedFiles.map(f => `"${f}"`).join(' ');
-                  await mcpService.executeTool('shell_exec', { command: `git restore ${quotedFiles}` });
+      targetWorker.onTaskComplete = async (failed: boolean, errorMessage?: string) => {
+          if (failed) {
+              this.injectToLead(`Worker ${targetWorker.id} HARD CRASH: ${errorMessage}. Rolling back locked files.`);
+              
+              try {
+                  if (lockedFiles.length > 0) {
+                      const quotedFiles = lockedFiles.map(f => `"${f}"`).join(' ');
+                      await mcpService.executeTool('shell_exec', { command: `git restore ${quotedFiles}` });
+                  }
+              } catch (gitErr) {
+                  console.error("Git restore failed:", gitErr);
+              } finally {
+                  targetWorker.isBusy = false;
+                  lockedFiles.forEach(f => this.scopeLocks.delete(f));
+                  this.broadcastWorkerStatus();
               }
-          } catch (gitErr) {
-              console.error("Git restore failed:", gitErr);
-          } finally {
+          } else {
               targetWorker.isBusy = false;
               lockedFiles.forEach(f => this.scopeLocks.delete(f));
               this.broadcastWorkerStatus();
           }
+      };
+      
+      targetWorker.delegateTask(taskInstruction).catch(err => {
+          console.error(`[Orchestrator] Submission Error assigning task to Worker ${targetWorker.id}:`, err.message);
+          targetWorker.isBusy = false;
+          lockedFiles.forEach(f => this.scopeLocks.delete(f));
+          this.broadcastWorkerStatus();
       });
 
       return { status: "queued", message: `Task delegated successfully. Mutex acquired on ${lockedFiles.length} specific files.` };
