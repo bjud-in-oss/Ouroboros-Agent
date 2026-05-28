@@ -15,3 +15,7 @@ When `sendRealtimeInput` is called on a dead socket, it throws an asynchronous "
 ## 4. The Live API Handshake Structure Refactor
 **Issue:** Our Worker sessions are "dead on arrival" due to a fundamental structual handshake flaw, not inactivity. Placing `automaticActivityDetection` directly inside the configuration object corrupts the JSON schema for `@google/genai`, causing immediate connection termination.
 **Solution:** We are preparing a structural refactoring of `services/liveOrchestrator.ts` to implement the correct structural blueprint (`realtimeInputConfig -> automaticActivityDetection -> disabled`). Concurrently, we will expand the WebSocket callbacks with `onopen`, `onclose`, and `onerror` to eliminate asynchronous blindness and improve debugging.
+
+## 5. The Live API Realtime Input Payload Refactor
+**Issue:** Text messages sent over the WebSocket are silently ignored by the server, leading to 45-second watchdog timeouts.
+**Solution:** `sendRealtimeInput` receives an array (`[{ text: "..." }]`) instead of the flat object (`{ text: "..." }`) expected by the server. We will refactor the sending blocks in `liveOrchestrator.ts` (specifically `delegateTask` and similar functions) to use the correct flat object payload structure to prevent silent packet drops.

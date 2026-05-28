@@ -150,3 +150,7 @@ realtimeInputConfig: {
 ```
 
 Additionally, for Gemini 2.5 in a real-time environment, the exact, stable model ID required is: `"gemini-2.5-flash-native-audio-preview-12-2025"`.
+
+14. The Live API Realtime Input Payload Rule:
+
+When sending interactive text via `this.session.sendRealtimeInput` using the `@google/genai` Live API, the data MUST NOT be encapsulated in an array or turn structure (e.g., `[{ text: "..." }]`). It MUST be sent as a flat object containing the `text` key: `sendRealtimeInput({ text: instruction })`. Sending an array will cause the server to silently drop the packet, resulting in a timeout.
