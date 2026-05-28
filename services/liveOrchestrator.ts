@@ -210,8 +210,28 @@ export class WorkerAgent {
       const toolsConfig = [{ functionDeclarations: [...mcpTools, ...orchestratorTools] }];
 
       this.session = await ai.live.connect({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.5-flash-native-audio-preview-12-2025",
+        realtimeInputConfig: {
+          automaticActivityDetection: { disabled: true }
+        },
         callbacks: {
+          onopen: () => {
+            console.log(`[WebSocket] Session ÖPPNAD för agens-ID ${this.id}`);
+          },
+          onclose: (event: any) => {
+            console.warn(`[WebSocket] Session STÄNGD för agens-ID ${this.id}`, event);
+            this.session = null;
+            this.isBusy = false; // Frigör agenten omedelbart
+            this.hasError = true; // Flagga för Phoenix-protokollet
+            if (this.watchdogTimer) clearTimeout(this.watchdogTimer); // Döda timern direkt
+          },
+          onerror: (error: any) => {
+            console.error(`[WebSocket] KRASCH för agens-ID ${this.id}:`, error);
+            this.session = null;
+            this.isBusy = false;
+            this.hasError = true;
+            if (this.watchdogTimer) clearTimeout(this.watchdogTimer);
+          },
           onmessage: async (message: LiveServerMessage) => {
             if (message.sessionResumptionUpdate?.handle) {
               this.resumptionHandle = message.sessionResumptionUpdate.handle;
@@ -279,8 +299,6 @@ export class WorkerAgent {
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: this.id === 3 ? "Fenrir" : "Kore" } } },
           tools: toolsConfig,
           systemInstruction: this.getSystemInstruction(),
-          // WORKER RULE: VAD disabled
-          automaticActivityDetection: false,
         }
       });
 
@@ -524,8 +542,22 @@ export class LiveOrchestrator {
   private async connectLead(isColdStart: boolean = false) {
     try {
       this.leadSession = await ai.live.connect({
-        model: "gemini-3.1-flash-live-preview",
+        model: "gemini-2.5-flash-native-audio-preview-12-2025",
+        realtimeInputConfig: {
+          automaticActivityDetection: { disabled: false }
+        },
         callbacks: {
+          onopen: () => {
+            console.log(`[WebSocket] Session ÖPPNAD för Lead Agent`);
+          },
+          onclose: (event: any) => {
+            console.warn(`[WebSocket] Session STÄNGD för Lead Agent`, event);
+            this.leadSession = null;
+          },
+          onerror: (error: any) => {
+            console.error(`[WebSocket] KRASCH för Lead Agent:`, error);
+            this.leadSession = null;
+          },
           onmessage: async (message: LiveServerMessage) => {
             // Track resumption handles for resilience
             if (message.sessionResumptionUpdate?.handle) {
@@ -566,8 +598,6 @@ export class LiveOrchestrator {
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } },
-          // LEAD RULE: VAD Enabled (Default true, explicitly declared for completeness)
-          automaticActivityDetection: true,
           systemInstruction: this.getLeadSystemInstruction(),
           tools: [{
             functionDeclarations: [{
