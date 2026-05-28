@@ -185,7 +185,6 @@ export class WorkerAgent {
 
     // 4. Perform remaining cleanup
     this.resumptionHandle = null;
-    this.isBusy = false;
     this.clearWatchdog();
   }
 
@@ -335,6 +334,8 @@ Only implement these features if you agree with the architectural and logical ap
     if (this.session) {
       this.session.sendRealtimeInput([{ text: fullInstruction }]);
       this.startWatchdog();
+    } else {
+      throw new Error(`Worker ${this.id} session invalid after focus file generation.`);
     }
     
     // Represents async processing...
