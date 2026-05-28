@@ -284,7 +284,8 @@ export class WorkerAgent {
                 }
 
                 if (responses.length > 0 && this.session) {
-                  this.session.sendToolResponse(responses);
+                  console.log(`[WebSocket] Sänder verktygssvar för Worker ${this.id}:`, { functionResponses: responses });
+                  this.session.sendToolResponse({ functionResponses: responses });
                 }
               } finally {
                 if (this.isBusy) {
@@ -590,7 +591,8 @@ export class LiveOrchestrator {
               
               // Immediately respond to unblock the Voice Loop
               if (responses.length > 0) {
-                 this.leadSession.sendToolResponse(responses);
+                 console.log(`[WebSocket] Sänder verktygssvar för Lead Agent:`, { functionResponses: responses });
+                 this.leadSession.sendToolResponse({ functionResponses: responses });
               }
             }
           }
