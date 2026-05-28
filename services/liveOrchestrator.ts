@@ -357,7 +357,7 @@ Only implement these features if you agree with the architectural and logical ap
       }
 
       try {
-        this.session.sendRealtimeInput([{ text: fullInstruction }]);
+        this.session.sendRealtimeInput({ text: fullInstruction });
         this.startWatchdog();
       } catch (error: any) {
         this.session = null; // Destroy the dead socket
@@ -655,17 +655,19 @@ This ensures the Worker Agent's context window remains focused purely on executi
   // Used by the frontend to send microphone audio to the lead session
   sendMicrophoneAudio(base64Audio: string) {
     if (this.leadSession) {
-      this.leadSession.sendRealtimeInput([{
-        mimeType: "audio/pcm;rate=16000",
-        data: base64Audio
-      }]);
+      this.leadSession.sendRealtimeInput({
+        media: {
+          mimeType: "audio/pcm;rate=16000",
+          data: base64Audio
+        }
+      });
     }
   }
 
   // Injects worker results into Lead's context asynchronously using ClientContent packaged as a system update
   private injectToLead(systemMessage: string) {
     if (this.leadSession) {
-      this.leadSession.sendRealtimeInput([{text: `[SYSTEM UPDATE / WORKER RESULT]\n${systemMessage}`}]);
+      this.leadSession.sendRealtimeInput({ text: `[SYSTEM UPDATE / WORKER RESULT]\n${systemMessage}` });
     }
   }
 }
