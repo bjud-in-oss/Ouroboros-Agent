@@ -135,3 +135,18 @@ The Dead Socket Trap: Checking if a session object exists is insufficient becaus
 12. The Live API Model String Inversion Trap:
 
 When utilizing the `@google/genai` Live API, the model string for Workers (W2/W3) MUST be exactly `gemini-2.5-flash`. Faulty, inverted, or hallucinated strings containing `-live` (such as `gemini-2.5-flash-live` or `gemini-live-2.5-flash-preview`) do not exist and will cause the Live API WebSocket to die asynchronously on initialization (throwing a CLOSING/CLOSED error immediately). Always use the exact base model name `gemini-2.5-flash`.
+
+13. The Live API Handshake Structure Rule:
+
+When initializing Google's Live API (`ai.live.connect`) via the new `@google/genai` client, the server will **NOT** accept configuration flags like `automaticActivityDetection` placed directly at the root `config` level. Doing so corrupts the JSON schema and instantly severs the connection during the handshake.
+
+The correct top-level structure MUST be:
+```typescript
+realtimeInputConfig: {
+  automaticActivityDetection: {
+    disabled: true // or false for Lead Agent
+  }
+}
+```
+
+Additionally, for Gemini 2.5 in a real-time environment, the exact, stable model ID required is: `"gemini-2.5-flash-native-audio-preview-12-2025"`.

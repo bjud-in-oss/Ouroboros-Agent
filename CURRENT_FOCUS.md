@@ -12,4 +12,6 @@ When `sendRealtimeInput` is called on a dead socket, it throws an asynchronous "
 
 ## 3. Model Name Inversion Bug (Live API)
 **Issue:** Workers were "dead on arrival" with WebSockets immediately closing with status `CLOSING` or `CLOSED`. This was caused by an inversion in the Live API model naming convention (`gemini-2.5-flash-live` instead of the correct `gemini-live-2.5-flash-preview`).
-**Solution:** Updated the worker initialization to strictly use `gemini-live-2.5-flash-preview`. Invalid or inverted model names cause silent/immediate websocket disconnection during handshake. We must also ensure the Orchestrator/Lead uses `gemini-3.1-flash-live-preview` correctly.
+## 4. The Live API Handshake Structure Refactor
+**Issue:** Our Worker sessions are "dead on arrival" due to a fundamental structual handshake flaw, not inactivity. Placing `automaticActivityDetection` directly inside the configuration object corrupts the JSON schema for `@google/genai`, causing immediate connection termination.
+**Solution:** We are preparing a structural refactoring of `services/liveOrchestrator.ts` to implement the correct structural blueprint (`realtimeInputConfig -> automaticActivityDetection -> disabled`). Concurrently, we will expand the WebSocket callbacks with `onopen`, `onclose`, and `onerror` to eliminate asynchronous blindness and improve debugging.
