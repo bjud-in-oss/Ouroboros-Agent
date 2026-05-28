@@ -154,3 +154,21 @@ Additionally, for Gemini 2.5 in a real-time environment, the exact, stable model
 14. The Live API Realtime Input Payload Rule:
 
 When sending interactive text via `this.session.sendRealtimeInput` using the `@google/genai` Live API, the data MUST NOT be encapsulated in an array or turn structure (e.g., `[{ text: "..." }]`). It MUST be sent as a flat object containing the `text` key: `sendRealtimeInput({ text: instruction })`. Sending an array will cause the server to silently drop the packet, resulting in a timeout.
+
+15. The Live API Tool Response Envelope Rule:
+
+When a `toolCall` is answered via `this.session.sendToolResponse(...)`, the argument MUST be an object structured exactly like this:
+
+```typescript
+this.session.sendToolResponse({
+  functionResponses: [
+    {
+      id: fc.id,
+      name: fc.name,
+      response: { result: executionResult }
+    }
+  ]
+});
+```
+
+If the array is passed directly without the `{ functionResponses: ... }` envelope, the SDK will throw the error: `Error: Tool response parameters are required.`.

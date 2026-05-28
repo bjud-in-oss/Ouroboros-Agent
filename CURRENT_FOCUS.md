@@ -19,3 +19,7 @@ When `sendRealtimeInput` is called on a dead socket, it throws an asynchronous "
 ## 5. The Live API Realtime Input Payload Refactor
 **Issue:** Text messages sent over the WebSocket are silently ignored by the server, leading to 45-second watchdog timeouts.
 **Solution:** `sendRealtimeInput` receives an array (`[{ text: "..." }]`) instead of the flat object (`{ text: "..." }`) expected by the server. We will refactor the sending blocks in `liveOrchestrator.ts` (specifically `delegateTask` and similar functions) to use the correct flat object payload structure to prevent silent packet drops.
+
+## 6. The Live API Tool Response Envelope Refactor
+**Issue:** Responding to a tool call crashes the active session with the error `Error: Tool response parameters are required.`.
+**Solution:** We are preparing a correction to the `onmessage` callback (specifically around line 287 and 593 in `services/liveOrchestrator.ts`) to wrap the tool responses in the strict `{ functionResponses: [...] }` envelope required by the SDK.
