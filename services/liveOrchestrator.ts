@@ -332,10 +332,15 @@ Only implement these features if you agree with the architectural and logical ap
     await safeSaveFocusFile(this.filename, `# Active Task\n${fullInstruction}\n\nStatus: Processing...`);
     
     if (this.session) {
-      this.session.sendRealtimeInput([{ text: fullInstruction }]);
-      this.startWatchdog();
+      try {
+        this.session.sendRealtimeInput([{ text: fullInstruction }]);
+        this.startWatchdog();
+      } catch (error: any) {
+        this.session = null; // Destroy the dead socket
+        throw new Error("WebSocket connection is dead. Worker requires Phoenix respawn.");
+      }
     } else {
-      throw new Error(`Worker ${this.id} session invalid after focus file generation.`);
+      throw new Error("Session dropped during focus file save."); // (The focus file deadlock fix we added previously)
     }
     
     // Represents async processing...
