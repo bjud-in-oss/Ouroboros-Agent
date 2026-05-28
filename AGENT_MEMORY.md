@@ -131,3 +131,7 @@ Before the Orchestrator delegates a new task in handleDelegation, it MUST verify
 If the worker is dead/disconnected, the Orchestrator MUST automatically re-initialize the worker's connection (`await targetWorker.initialize(...)`) before proceeding with the delegation. This ensures a self-healing pipeline where workers can respawn from fatal errors.
 
 The Dead Socket Trap: Checking if a session object exists is insufficient because WebSockets can close silently. The actual dispatch sequence (`this.session.sendRealtimeInput`) MUST be wrapped in a strict `try...catch` block. If the socket throws a "CLOSED" error during dispatch, the catch block MUST immediately nullify the session (`this.session = null`) and throw a new error. This guarantees the Orchestrator's `.catch()` block catches the failure, strips the Mutex locks, and arms the worker for a Phoenix respawn on the next delegation attempt.
+
+12. The Live API Model String Inversion Trap:
+
+When utilizing the `@google/genai` Live API, the model string for Workers (W2/W3) MUST be exactly `gemini-2.5-flash`. Faulty, inverted, or hallucinated strings containing `-live` (such as `gemini-2.5-flash-live` or `gemini-live-2.5-flash-preview`) do not exist and will cause the Live API WebSocket to die asynchronously on initialization (throwing a CLOSING/CLOSED error immediately). Always use the exact base model name `gemini-2.5-flash`.
