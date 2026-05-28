@@ -23,3 +23,7 @@ When `sendRealtimeInput` is called on a dead socket, it throws an asynchronous "
 ## 6. The Live API Tool Response Envelope Refactor
 **Issue:** Responding to a tool call crashes the active session with the error `Error: Tool response parameters are required.`.
 **Solution:** We are preparing a correction to the `onmessage` callback (specifically around line 287 and 593 in `services/liveOrchestrator.ts`) to wrap the tool responses in the strict `{ functionResponses: [...] }` envelope required by the SDK.
+
+## 7. The Unified Live-First Chat Architecture
+**Issue:** We need to phase out the REST API chat in `App.tsx` completely to avoid 429 errors and establish a unified streaming model for all interactions.
+**Solution:** We are preparing a blueprint for a total restructuring of the chat component in `App.tsx` and the expansion of the self-awareness/seeding loops in `services/liveOrchestrator.ts`. The primary chat will be driven entirely by the Live API, and application state (`app-data.json`) will be seeded once at startup, with real-time text patches used to mutate behavior dynamically.

@@ -172,3 +172,15 @@ this.session.sendToolResponse({
 ```
 
 If the array is passed directly without the `{ functionResponses: ... }` envelope, the SDK will throw the error: `Error: Tool response parameters are required.`.
+
+16. The Dual-Matrix DNA Seeding and Realtime Patching Rule:
+
+`app-data.json` from Drive MUST be read exactly once upon startup and baked into the initial `systemInstruction` of the agents. For mutations during runtime, the change MUST be pushed as a real-time patch via `sendRealtimeInput` to maintain a creative cognitive overlay. When a sub-goal is reached, the session should be restartable in the background to perform a "cognitive sanitization" and establish a new, clean baseline.
+
+17. The Live-First Chat Unification Rule:
+
+The main chat and its control routines MUST be driven exclusively by the streaming Live API. The old REST calls in `App.tsx` MUST be phased out. Any extremely heavy analysis (like massive code reviews) should be encapsulated as an isolated function tool (`call_rest_api`) controlled by an internal software meter to prevent 429 errors.
+
+18. The Silent Heartbeat Clock Rule:
+
+Time and rate-quota awareness MUST be injected silently from the frontend once a minute via `sendRealtimeInput` with scheduling: "SILENT". The agent MUST be forbidden via system instructions from discussing or complaining about quotas with the user, and instead use the data for silent internal execution planning (e.g., adding an asynchronous wait time).
