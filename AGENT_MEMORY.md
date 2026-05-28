@@ -121,3 +121,11 @@ Instead of a static transaction timer, this watchdog measures *time elapsed sinc
 Every time a Worker receives new instructions (`delegateTask`) or successfully executes an MCP tool (`handleMcpToolCall`), the watchdog timer MUST be cleared and reset to 45 seconds.
 
 If a Worker falls into total silence for 45 consecutive seconds without executing any tools or emitting updates, the watchdog triggers the Execution Error pathway (`onTaskComplete(true, "Watchdog Intervention: Agent timed out due to total inactivity")`). This immediately invokes the `try...catch...finally` Git Rollback and forcefully strips the Mutex locks.
+
+11. The Phoenix Protocol (State Auto-Recovery):
+
+When a Worker's session is terminated (e.g., via the Watchdog timeout) and its session reference is nullified, it must not remain permanently locked out of the orchestration pool.
+
+Before the Orchestrator delegates a new task in handleDelegation, it MUST verify if the target worker has a live session.
+
+If the worker is dead/disconnected, the Orchestrator MUST automatically re-initialize the worker's connection (`await targetWorker.initialize(...)`) before proceeding with the delegation. This ensures a self-healing pipeline where workers can respawn from fatal errors.
