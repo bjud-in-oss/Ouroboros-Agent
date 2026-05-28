@@ -9,3 +9,7 @@ When `sendRealtimeInput` is called on a dead socket, it throws an asynchronous "
 ## 2. Future Architectural Refactor (Agent 1)
 **Issue:** Agent 1 (The Orchestrator) is currently running on the REST API (`gemini-3-pro-preview`). Because the full contextual history must be sent with every request, this rapidly consumes the API rate limit quota (HTTP 429 - Too Many Requests).
 **Solution:** We need to rebuild Agent 1 to use the Live API (`gemini-3.1-flash`) exclusively. The Live API maintains context natively within the session, drastically reducing overhead payload and avoiding REST API rate limit saturation.
+
+## 3. Model Name Inversion Bug (Live API)
+**Issue:** Workers were "dead on arrival" with WebSockets immediately closing with status `CLOSING` or `CLOSED`. This was caused by an inversion in the Live API model naming convention (`gemini-2.5-flash-live` instead of the correct `gemini-live-2.5-flash-preview`).
+**Solution:** Updated the worker initialization to strictly use `gemini-live-2.5-flash-preview`. Invalid or inverted model names cause silent/immediate websocket disconnection during handshake. We must also ensure the Orchestrator/Lead uses `gemini-3.1-flash-live-preview` correctly.

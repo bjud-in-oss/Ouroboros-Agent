@@ -210,7 +210,7 @@ export class WorkerAgent {
       const toolsConfig = [{ functionDeclarations: [...mcpTools, ...orchestratorTools] }];
 
       this.session = await ai.live.connect({
-        model: "gemini-2.5-flash-live",
+        model: "gemini-live-2.5-flash-preview",
         callbacks: {
           onmessage: async (message: LiveServerMessage) => {
             if (message.sessionResumptionUpdate?.handle) {
