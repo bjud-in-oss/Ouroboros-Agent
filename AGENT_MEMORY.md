@@ -171,4 +171,16 @@ this.session.sendToolResponse({
 });
 ```
 
+### 16. Hierarkiskt Minne & Cerebral Compactor
+Systemet överger rå trunkering. Minnet delas i Tier 0 (oföränderlig identitet), Tier 1 (flyktig WebSocket-ström) och Tier 2 (Google Drive). När Tier 1 fylls, används en asynkron bakgrundsprocess ("Cerebral Compactor") med Eval-Driven Memory (EDM) för att destillera framgångsrika historiker till kompakta JSON-kapslar.
+
+### 17. Säkerhet & AARM (Autonomous Action Runtime Management)
+Agenten/modellen är inte säkerhetsgränsen. React-applikationen implementerar en AARM-middleware som avlyssnar och validerar alla Model Context Protocol (MCP)-verktygsanrop mot ett "Mission Manifesto" innan de körs. För att spara tokens tillämpas "Two-Pass Tool Injection" (Lazy Loading) där verktygens scheman injiceras först när de behövs.
+
+### 18. Transaktionssäkerhet & WAL (Split-Brain Prevention)
+All I/O mot Google Drive sker med Optimistic Concurrency Control (OCC). HTTP If-Match-headers och ETags används för att blockera skrivningar om filen ändrats externt. Vid ett 412-fel (krock) utför agenten en asynkron "Kognitiv Rebase". Alla systemmutationer sparas först i en händelsestyrd Write-Ahead Log (WAL) i webbläsarens IndexedDB för millisekundexakt kraschåterhämtning.
+
+### 19. Arkitekturkapslarna (The Source of Truth)
+De exakta tekniska specifikationerna för ovanstående system finns lagrade som tre specifika filer: `ARCHITECTURE_CAPSULE_MEMORY.md`, `ARCHITECTURE_CAPSULE_SECURITY.md` och `ARCHITECTURE_CAPSULE_SYNC.md`. Vid framtida kodimplementering ska dessa kapslar begäras och läsas som referensverktyg.
+
 If the array is passed directly without the `{ functionResponses: ... }` envelope, the SDK will throw the error: `Error: Tool response parameters are required.`.
