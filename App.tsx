@@ -45,10 +45,16 @@ const App: React.FC = () => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const hasCheckedGithub = useRef(false);
 
+  const [needsNewTab, setNeedsNewTab] = useState(!self.crossOriginIsolated);
+
   // --- Effects ---
   
   // Pre-Warm Workspace Kernel
   useEffect(() => {
+    if (!self.crossOriginIsolated) {
+       console.warn("SharedArrayBuffer transfer requires self.crossOriginIsolated. Workspace Kernel cannot boot in this iframe.");
+       return;
+    }
     import('./services/workspaceKernel').then(({ getWorkspaceKernel }) => {
        console.log("Pre-warming Workspace Kernel...");
        getWorkspaceKernel().catch(err => {
@@ -347,10 +353,19 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-full bg-[#09090b] text-zinc-300 font-sans overflow-hidden">
+    <div className="flex h-screen w-full bg-[#09090b] text-zinc-300 font-sans overflow-hidden relative">
+      
+      {needsNewTab && (
+        <div className="absolute top-0 left-0 right-0 bg-red-900/90 text-red-100 px-6 py-2 text-sm z-50 flex items-center justify-between shadow-md border-b border-red-800 backdrop-blur-sm">
+           <div className="flex items-center gap-2">
+             <span>⚠️ <strong>WebContainer Blocked:</strong> This application requires a cross-origin isolated context to run the Workspace Kernel (WASM).</span>
+           </div>
+           <span className="opacity-80">Please open this preview in a new tab to continue.</span>
+        </div>
+      )}
       
       {/* Left Sidebar: Chat Interface */}
-      <div className="w-1/3 flex flex-col border-r border-zinc-800 bg-[#0c0c0e]">
+      <div className={`w-1/3 flex flex-col border-r border-zinc-800 bg-[#0c0c0e] ${needsNewTab ? 'pt-10' : ''}`}>
         
         {/* Header */}
         <div className="h-16 border-b border-zinc-800 flex items-center px-6 gap-3 select-none justify-between">
@@ -564,7 +579,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Right Content: Memory & Focus Dashboard */}
-      <div className="flex-1 flex flex-col bg-[#09090b]">
+      <div className={`flex-1 flex flex-col bg-[#09090b] ${needsNewTab ? 'pt-10' : ''}`}>
         
         {/* Toolbar */}
         <div className="h-16 border-b border-zinc-800 flex items-center justify-between px-6 bg-[#09090b]">

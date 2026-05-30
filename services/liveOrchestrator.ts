@@ -323,6 +323,9 @@ Only implement these features if you agree with the architectural and logical ap
 
   async handleMcpToolCall(name: string, args: any) {
     if (name === 'shell_exec') {
+      if (!self.crossOriginIsolated) {
+        return "ERROR: The Workspace Kernel cannot be executed because the application is missing Cross-Origin Isolation. Instruct the user to open the application in a new tab.";
+      }
       const kernel = await getWorkspaceKernel();
       // args.command är kommandot
       const processHandle = await kernel.spawnProcess('jsh', ['-c', args.command]);
@@ -496,11 +499,15 @@ export class LiveOrchestrator {
     await this.connectLead(true);
     
     // Anslut Kärnan och registrera VFS-watchern
-    const kernel = await getWorkspaceKernel();
-    if (kernel instanceof WasmContainerEnv) {
-      kernel.getBridge().registerVFSWatcher(kernel.getContainer(), (path, content) => {
-        this.vfsNotifier.notifyChange(path);
-      });
+    if (self.crossOriginIsolated) {
+      const kernel = await getWorkspaceKernel();
+      if (kernel instanceof WasmContainerEnv) {
+        kernel.getBridge().registerVFSWatcher(kernel.getContainer(), (path, content) => {
+          this.vfsNotifier.notifyChange(path);
+        });
+      }
+    } else {
+      console.warn("Skipping Workspace Kernel boot in orchestrator due to missing cross-origin isolation.");
     }
 
     this.broadcastWorkerStatus();

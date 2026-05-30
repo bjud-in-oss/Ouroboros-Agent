@@ -1,6 +1,10 @@
 {
-  "name": "Copy of Ouroboros AI Interface innan kodoptimering Fas 2",
-  "description": "A recursive memory interface for autonomous agents using Drive-Augmented architecture.",
-  "requestFramePermissions": [],
-  "majorCapabilities": []
+  "name": "Ouroboros AI Workspace",
+  "description": "A recursive memory interface for autonomous agents using WebContainer-Augmented architecture.",
+  "requestFramePermissions": [
+    "cross-origin-isolated"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
