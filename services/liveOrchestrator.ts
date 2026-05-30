@@ -1,133 +1,11 @@
 import { GoogleGenAI, Modality, Type, FunctionDeclaration, LiveServerMessage } from "@google/genai";
 import { mcpService } from "./mcpService";
-import { saveState, ensureFolderExists, createFile, readFile } from "./driveService";
+import { walManager } from "./walManager";
+import { aarmGate } from "./aarmGate";
 import { AppData } from "../types";
 
 const apiKey = import.meta.env.VITE_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
-
-// ==========================================
-// THE MANAGER QUEUE & LOCK SYSTEM
-// ==========================================
-
-class StateManager {
-  private isSaving = false;
-  private queue: Array<() => Promise<void>> = [];
-
-  async enqueueSave(operation: () => Promise<void>): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.queue.push(async () => {
-        try {
-          await operation();
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      });
-      this.processQueue();
-    });
-  }
-
-  private async processQueue() {
-    if (this.isSaving || this.queue.length === 0) return;
-    this.isSaving = true;
-    const task = this.queue.shift();
-    if (task) {
-      try {
-        await task();
-      } catch (err) {
-        console.error("Queue task failed:", err);
-      }
-    }
-    this.isSaving = false;
-    this.processQueue();
-  }
-}
-
-const stateManager = new StateManager();
-
-// ==========================================
-// EXPONENTIAL BACKOFF FOR DRIVE APIS
-// ==========================================
-
-const MAX_RETRIES = 5;
-const BASE_DELAY_MS = 1000;
-
-async function executeWithBackoff<T>(operation: () => Promise<T>): Promise<T> {
-  let retries = 0;
-  while (true) {
-    try {
-      return await operation();
-    } catch (error: any) {
-      const status = error?.status || error?.response?.status;
-      if (status === 429 && retries < MAX_RETRIES) {
-        retries++;
-        const delay = BASE_DELAY_MS * Math.pow(2, retries) + Math.random() * 1000;
-        console.warn(`HTTP 429 Too Many Requests. Retrying in ${delay.toFixed(0)}ms (Attempt ${retries}/${MAX_RETRIES})...`);
-        await new Promise(res => setTimeout(res, delay));
-      } else {
-        throw error;
-      }
-    }
-  }
-}
-
-export const safeSaveState = async (data: AppData) => {
-  await stateManager.enqueueSave(async () => {
-    await executeWithBackoff(() => saveState(data));
-  });
-};
-
-export const safeSaveFocusFile = async (filename: string, content: string) => {
-  await executeWithBackoff(async () => {
-    const folderId = await ensureFolderExists();
-    // In a full implementation, you would check if it exists and PATCH or POST,
-    // assuming createFile acts as POST here for simplicity, though driveService
-    // might need an update to PATCH by name. We will use standard Drive API via fetch if needed.
-    // For now, we simulate writing the file or relying on driveService behavior.
-    
-    const accessToken = window.gapi.client.getToken().access_token;
-    
-    // Using gapi client for a simpler update sequence:
-    const searchResp = await window.gapi.client.drive.files.list({
-      q: `name = '${filename}' and '${folderId}' in parents and trashed = false`,
-      fields: 'files(id)'
-    });
-    
-    const files = searchResp.result.files;
-    const fileId = files && files.length > 0 ? files[0].id : null;
-    
-    const metadata = { name: filename, mimeType: 'text/markdown' };
-    const method = fileId ? 'PATCH' : 'POST';
-    const url = fileId 
-      ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`
-      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-    
-    if (!fileId) {
-      (metadata as any).parents = [folderId];
-    }
-    
-    const multipartBody = 
-        "--foo_bar_baz\r\n" +
-        "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
-        JSON.stringify(metadata) + "\r\n" +
-        "--foo_bar_baz\r\n" +
-        "Content-Type: text/markdown\r\n\r\n" +
-        content + "\r\n" +
-        "--foo_bar_baz--";
-
-    const res = await fetch(url, {
-      method,
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'multipart/related; boundary=foo_bar_baz'
-      },
-      body: multipartBody
-    });
-    
-    if (!res.ok) throw new Error(`Failed to save ${filename}`);
-  });
-};
 
 // ==========================================
 // WORKER AGENT IMPLEMENTATION
@@ -256,8 +134,28 @@ export class WorkerAgent {
                     continue;
                   }
 
+                  // === AARM Middleware evaluation ===
+                  const evaluation = aarmGate.evaluate(call.name, call.args);
+                  
+                  if (evaluation.status !== 'ALLOW') {
+                    console.warn(`[AARM] Blocked tool ${call.name} for Worker ${this.id}: ${evaluation.reason}`);
+                    responses.push({
+                      id: call.id,
+                      name: call.name,
+                      response: { error: `[AARM DENIED]: ${evaluation.reason}` }
+                    });
+                    continue;
+                  }
+
                   try {
+                    // === WAL Registration (Event Intent) ===
+                    const eventId = await walManager.logEvent(call.name, call.args);
+                    
                     const result = await this.handleMcpToolCall(call.name, call.args);
+                    
+                    // === WAL Commit ===
+                    await walManager.commitEvent(eventId);
+
                     responses.push({
                       id: call.id,
                       name: call.name,
@@ -348,7 +246,8 @@ ${instruction}
 [VETO PROTOCOL REMINDER]
 Only implement these features if you agree with the architectural and logical approach. Otherwise, report the problem and do NOT implement anything. If you veto, explain exactly why.
 `;
-    await safeSaveFocusFile(this.filename, `# Active Task\n${fullInstruction}\n\nStatus: Processing...`);
+    // We log the focus change to WAL purely for record keeping. Focus files are deprecated.
+    await walManager.logEvent('UPDATE_FOCUS', { worker: this.id, task: fullInstruction });
     
     if (this.session) {
       const ws = (this.session as any).ws || (this.session as any).websocket;
@@ -393,7 +292,7 @@ Only implement these features if you agree with the architectural and logical ap
       } catch (err: any) {
         attempts++;
         if (attempts >= 3) {
-           await safeSaveFocusFile(this.filename, `# ABORTED\nFailed after 3 attempts on tool ${name}.\nError: ${err.message}`);
+           await walManager.logEvent('WORKER_ABORT', { worker: this.id, tool: name, error: err.message });
            throw new Error(`Worker ${this.id} aborted task after 3 sandbox failures.`);
         }
       }
@@ -580,10 +479,27 @@ export class LiveOrchestrator {
               const responses: any[] = [];
               
               for (const call of calls) {
+                // === AARM Middleware evaluation ===
+                const evaluation = aarmGate.evaluate(call.name, call.args);
+                
+                if (evaluation.status !== 'ALLOW') {
+                  console.warn(`[AARM] Blocked tool ${call.name} for Lead Agent: ${evaluation.reason}`);
+                  responses.push({
+                    id: call.id,
+                    name: call.name,
+                    response: { error: `[AARM DENIED]: ${evaluation.reason}` }
+                  });
+                  continue;
+                }
+
                 if (call.name === 'delegateToWorker') {
                   const workerArg = call.args as any;
                   const lockedFiles: string[] = workerArg.lockedFiles || [];
+                  const eventId = await walManager.logEvent(call.name, call.args);
+                  
                   const response = await this.handleDelegation(workerArg.workerId, workerArg.taskInstruction, lockedFiles);
+                  
+                  await walManager.commitEvent(eventId);
                   responses.push({ id: call.id, name: call.name, response });
                   continue;
                 }

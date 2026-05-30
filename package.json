@@ -13,6 +13,7 @@
     "@google/genai": "^1.52.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "d3": "^7.9.0",
+    "idb": "^8.0.3",
     "lucide-react": "^0.562.0",
     "pdfjs-dist": "^5.7.284",
     "react": "^19.2.3",
