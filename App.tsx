@@ -47,6 +47,16 @@ const App: React.FC = () => {
 
   // --- Effects ---
   
+  // Pre-Warm Workspace Kernel
+  useEffect(() => {
+    import('./services/workspaceKernel').then(({ getWorkspaceKernel }) => {
+       console.log("Pre-warming Workspace Kernel...");
+       getWorkspaceKernel().catch(err => {
+         console.error("Failed to pre-warm Workspace Kernel:", err);
+       });
+    });
+  }, []);
+
   // Initialize Google Scripts
   useEffect(() => {
     driveService.loadGoogleScripts(() => {

@@ -3,9 +3,47 @@ import { mcpService } from "./mcpService";
 import { walManager } from "./walManager";
 import { aarmGate } from "./aarmGate";
 import { AppData } from "../types";
+import { getWorkspaceKernel, WasmContainerEnv } from "./workspaceKernel";
 
 const apiKey = import.meta.env.VITE_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
+
+class BatchedVFSNotifier {
+  private timeoutId: NodeJS.Timeout | null = null;
+  private modifiedFiles = new Set<string>();
+
+  constructor(private orchestrator: LiveOrchestrator) {}
+
+  public notifyChange(path: string) {
+    this.modifiedFiles.add(path);
+
+    if (this.timeoutId) {
+      clearTimeout(this.timeoutId);
+    }
+
+    this.timeoutId = setTimeout(() => {
+      this.flush();
+    }, 1000);
+  }
+
+  private async flush() {
+    if (this.modifiedFiles.size === 0) return;
+
+    const count = this.modifiedFiles.size;
+    const filesArray = Array.from(this.modifiedFiles);
+    const summary = filesArray.slice(0, 5).join(', ') + (count > 5 ? ` and ${count - 5} more files` : '');
+
+    const message = `[SYSTEM MESSAGE]: ${count} files modified in VFS (${summary}). These changes were triggered externally.`;
+
+    // Log the external modification event
+    await walManager.logEvent('VFS_EXTERNAL_CHANGE', { files: filesArray });
+
+    this.orchestrator.injectToLead(message);
+
+    this.modifiedFiles.clear();
+    this.timeoutId = null;
+  }
+}
 
 // ==========================================
 // WORKER AGENT IMPLEMENTATION
@@ -284,6 +322,37 @@ Only implement these features if you agree with the architectural and logical ap
   }
 
   async handleMcpToolCall(name: string, args: any) {
+    if (name === 'shell_exec') {
+      const kernel = await getWorkspaceKernel();
+      // args.command är kommandot
+      const processHandle = await kernel.spawnProcess('jsh', ['-c', args.command]);
+      
+      const reader = processHandle.aiStream.getReader();
+      const tailBuffer: string[] = [];
+      const tailLimit = 50; // Max 50 rader tail buffer
+      
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          // output may consist of multiple lines/chunks
+          const text = value;
+          const lines = text.split('\n');
+          for (const line of lines) {
+            tailBuffer.push(line);
+            if (tailBuffer.length > tailLimit) {
+              tailBuffer.shift();
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Stream closed with error", err);
+      }
+      
+      const exitCode = await processHandle.exitCode;
+      return `Exited with code ${exitCode}\n\nLast output:\n${tailBuffer.join('\n')}`;
+    }
+
     let attempts = 0;
     while (attempts < 3) {
       try {
@@ -316,6 +385,7 @@ export class LiveOrchestrator {
   private worker3: WorkerAgent;
   private leadResumptionHandle: string | null = null;
   private scopeLocks: Map<string, number> = new Map();
+  private vfsNotifier: BatchedVFSNotifier;
   
   // Callback to push audio/status back to UI
   public onAudioChunk?: (base64Audio: string) => void;
@@ -325,6 +395,7 @@ export class LiveOrchestrator {
   constructor() {
     this.worker2 = new WorkerAgent(2);
     this.worker3 = new WorkerAgent(3);
+    this.vfsNotifier = new BatchedVFSNotifier(this);
   }
 
   private broadcastWorkerStatus() {
@@ -423,6 +494,15 @@ export class LiveOrchestrator {
     await this.worker2.initialize((msg) => this.injectToLead(msg));
     await this.worker3.initialize((msg) => this.injectToLead(msg));
     await this.connectLead(true);
+    
+    // Anslut Kärnan och registrera VFS-watchern
+    const kernel = await getWorkspaceKernel();
+    if (kernel instanceof WasmContainerEnv) {
+      kernel.getBridge().registerVFSWatcher(kernel.getContainer(), (path, content) => {
+        this.vfsNotifier.notifyChange(path);
+      });
+    }
+
     this.broadcastWorkerStatus();
   }
 
@@ -583,7 +663,7 @@ This ensures the Worker Agent's context window remains focused purely on executi
   }
 
   // Injects worker results into Lead's context asynchronously using ClientContent packaged as a system update
-  private injectToLead(systemMessage: string) {
+  public injectToLead(systemMessage: string) {
     if (this.leadSession) {
       this.leadSession.sendRealtimeInput({ text: `[SYSTEM UPDATE / WORKER RESULT]\n${systemMessage}` });
     }
