@@ -1,4 +1,4 @@
-import type { WebContainer } from '@webcontainer/api';
+import { WebContainer } from '@webcontainer/api';
 
 // ==========================================
 // TYPES & INTERFACES
@@ -8,8 +8,11 @@ import type { WebContainer } from '@webcontainer/api';
  * Representerar en abstraherad process (WASM eller Cloud/E2B)
  */
 export interface IProcessHandle {
-  /** Multiplexerad ström av standard out och standard error, kombinerad i tidsordning via .tee() */
-  outputStream: ReadableStream<string>;
+  /** Ström dirigerad mot terminal-gränssnittet (Xterm) */
+  terminalStream: ReadableStream<string>;
+  
+  /** Ström dirigerad asynkront tillbaka mot Gemini WebSocket */
+  aiStream: ReadableStream<string>;
   
   /** Returnerar ett löfte som upplöses med processens exit code när den avslutats */
   exitCode: Promise<number>;
@@ -26,19 +29,10 @@ export interface IProcessHandle {
  * Möjliggör "Graceful Escalation" från WebContainers (lokal WASM) till moln-sandlådor (E2B/Docker).
  */
 export interface IExecutionEnvironment {
-  /** Initierar och bootar miljön asynkront */
   boot(): Promise<void>;
-  
-  /** Läser innehållet i en fil från det virtuella filsystemet (VFS) */
   readFile(path: string): Promise<string>;
-  
-  /** Skriver en fil till det virtuella filsystemet (måste passera SyncBridge:s låsmekanism) */
   writeFile(path: string, content: string): Promise<void>;
-  
-  /** Startar en process i miljön */
   spawnProcess(command: string, args: string[]): Promise<IProcessHandle>;
-  
-  /** Stänger ner exekveringsmiljön, städar processer och frigör minne */
   teardown(): Promise<void>;
 }
 
@@ -46,41 +40,99 @@ export interface IExecutionEnvironment {
 // CLASSES
 // ==========================================
 
-/**
- * Hanterar synkroniseringen mellan appens WAL (IndexedDB) och miljöns VFS.
- * Använder ett system av transitlås för att förhindra oändliga ekhon/dataloopar.
- */
 export class TransactionalSyncBridge {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private activeLocks: Set<string>;
+  private activeLocks: Map<string, { expectedContent: string; timeoutId: number | NodeJS.Timeout }>;
 
   constructor() {
-    this.activeLocks = new Set();
+    this.activeLocks = new Map();
   }
 
-  /**
-   * Skriver data från WAL till VFS och sätter ett tillfälligt lås (activeLock).
-   */
-  public async writeFromWALToVFS(path: string, content: string, env: IExecutionEnvironment): Promise<void> {
-    // TODO: Implementeras i nästa fas.
+  public async writeFromWALToVFS(path: string, content: string, env: WebContainer): Promise<void> {
+    const existingLock = this.activeLocks.get(path);
+    if (existingLock) {
+      clearTimeout(existingLock.timeoutId);
+    }
+
+    // Set lock to block immediate fs.watch echoes (50ms timeout)
+    const timeoutId = setTimeout(() => {
+      this.activeLocks.delete(path);
+    }, 50);
+
+    // Knyter innehållet (hash/string-check) till låset
+    this.activeLocks.set(path, { expectedContent: content, timeoutId });
+
+    try {
+      await env.fs.writeFile(path, content);
+    } catch (err) {
+      this.activeLocks.delete(path);
+      throw err;
+    }
   }
 
-  /**
-   * Bevakar externt initierade förändringar i VFS och filtrerar bort de
-   * som triggades av WAL-mutationer via låstabellen.
-   */
-  public registerVFSWatcher(env: IExecutionEnvironment, onExternalChange: (path: string, content: string) => void): void {
-    // TODO: Implementeras i nästa fas.
+  public registerVFSWatcher(env: WebContainer, onExternalChange: (path: string, content: string) => void): void {
+    env.fs.watch('/', { recursive: true }, async (event, filename) => {
+      if (!filename || filename.includes('node_modules')) return;
+
+      const fullPath = filename.startsWith('/') ? filename : `/${filename}`;
+      const lock = this.activeLocks.get(fullPath) || this.activeLocks.get(filename);
+      
+      try {
+        const content = await env.fs.readFile(filename, 'utf-8');
+        
+        // Innehållsvalidering för att säkert utesluta eko-cykler
+        if (lock && lock.expectedContent === content) {
+          return; // Det är vårat eget eko, blockera!
+        }
+
+        // Detta är en äkta extern ändring (skapades inifrån WebContainern)
+        onExternalChange(filename, content);
+      } catch (err) {
+        // Fil troligen borttagen
+      }
+    });
   }
 }
 
-/**
- * Specifik implementation av IExecutionEnvironment för StackBlitz WebContainers (WASM).
- */
+class WasmProcessHandle implements IProcessHandle {
+  public terminalStream: ReadableStream<string>;
+  public aiStream: ReadableStream<string>;
+  public exitCode: Promise<number>;
+  private writer: WritableStreamDefaultWriter<string>;
+  private killFn: () => void;
+
+  constructor(
+    terminalStream: ReadableStream<string>,
+    aiStream: ReadableStream<string>,
+    exitCode: Promise<number>,
+    writer: WritableStreamDefaultWriter<string>,
+    killFn: () => void
+  ) {
+    this.terminalStream = terminalStream;
+    this.aiStream = aiStream;
+    this.exitCode = exitCode;
+    this.writer = writer;
+    this.killFn = killFn;
+  }
+
+  public async writeInput(data: string | Uint8Array): Promise<void> {
+    const stringData = typeof data === 'string' ? data : new TextDecoder().decode(data);
+    
+    // Explicit Backpressure-Kontroll för inmatning
+    if (this.writer.desiredSize !== null && this.writer.desiredSize <= 0) {
+      await this.writer.ready;
+    }
+    
+    await this.writer.write(stringData);
+  }
+
+  public kill(): void {
+    this.killFn();
+  }
+}
+
 export class WasmContainerEnv implements IExecutionEnvironment {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private container: WebContainer | null;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private syncBridge: TransactionalSyncBridge;
 
   constructor() {
@@ -88,26 +140,53 @@ export class WasmContainerEnv implements IExecutionEnvironment {
     this.syncBridge = new TransactionalSyncBridge();
   }
 
+  public getBridge(): TransactionalSyncBridge {
+    return this.syncBridge;
+  }
+  
+  public getContainer(): WebContainer {
+    if (!this.container) throw new Error("Miljön ej uppstartad (boot saknas)");
+    return this.container;
+  }
+
   public async boot(): Promise<void> {
-    // TODO: Implementeras i nästa fas.
+    if (this.container) return; // Redan bootad externt
+    this.container = await WebContainer.boot();
   }
 
   public async readFile(path: string): Promise<string> {
-    // TODO: Implementeras i nästa fas.
-    return "";
+    if (!this.container) throw new Error("Miljön ej uppstartad (boot saknas)");
+    return await this.container.fs.readFile(path, 'utf-8');
   }
 
   public async writeFile(path: string, content: string): Promise<void> {
-    // TODO: Implementeras i nästa fas.
+    if (!this.container) throw new Error("Miljön ej uppstartad (boot saknas)");
+    await this.syncBridge.writeFromWALToVFS(path, content, this.container);
   }
 
   public async spawnProcess(command: string, args: string[]): Promise<IProcessHandle> {
-    // TODO: Implementeras i nästa fas.
-    throw new Error('Not implemented');
+    if (!this.container) throw new Error("Miljön ej uppstartad (boot saknas)");
+    
+    const process = await this.container.spawn(command, args);
+    const writer = process.input.getWriter();
+    
+    // .tee() används för att skicka strömmen till både GUI-terminalen och AI:ns JSON-feed.
+    const [terminalStream, aiStream] = process.output.tee();
+    
+    return new WasmProcessHandle(
+      terminalStream,
+      aiStream,
+      process.exit,
+      writer,
+      () => process.kill()
+    );
   }
 
   public async teardown(): Promise<void> {
-    // TODO: Implementeras i nästa fas.
+    if (this.container) {
+      this.container.teardown();
+      this.container = null;
+    }
   }
 }
 
@@ -115,11 +194,23 @@ export class WasmContainerEnv implements IExecutionEnvironment {
 // GLOBAL SINGLETON BOOTLOADER
 // ==========================================
 
-/**
- * Den asynkrona singleton-barriären som skyddar WebContainer.boot()
- * från att anropas parallellt/multipla gånger under React StrictMode mounting.
- */
+let globalKernelPromise: Promise<IExecutionEnvironment> | null = null;
+let activeKernelInstance: IExecutionEnvironment | null = null;
+
 export async function getWorkspaceKernel(): Promise<IExecutionEnvironment> {
-  // TODO: Implementeras i nästa fas.
-  throw new Error('Not implemented');
+  if (activeKernelInstance) return activeKernelInstance;
+  
+  if (!globalKernelPromise) {
+    const env = new WasmContainerEnv();
+    
+    globalKernelPromise = env.boot().then(() => {
+      activeKernelInstance = env;
+      return env;
+    }).catch((err) => {
+      globalKernelPromise = null;
+      throw err;
+    });
+  }
+  
+  return globalKernelPromise;
 }
