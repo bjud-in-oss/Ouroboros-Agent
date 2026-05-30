@@ -12,6 +12,7 @@
   "dependencies": {
     "@google/genai": "^1.52.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@webcontainer/api": "^1.6.4",
     "d3": "^7.9.0",
     "idb": "^8.0.3",
     "lucide-react": "^0.562.0",
