@@ -58,6 +58,7 @@ export class WorkerAgent {
   public isBusy: boolean = false;
   public hasError: boolean = false;
   private watchdogTimer: NodeJS.Timeout | null = null;
+  public onTerminalStream?: (stream: ReadableStream<string>) => void;
 
   constructor(id: number) {
     this.id = id;
@@ -330,6 +331,10 @@ Only implement these features if you agree with the architectural and logical ap
       // args.command är kommandot
       const processHandle = await kernel.spawnProcess('jsh', ['-c', args.command]);
       
+      if (this.onTerminalStream) {
+        this.onTerminalStream(processHandle.terminalStream);
+      }
+      
       const reader = processHandle.aiStream.getReader();
       const tailBuffer: string[] = [];
       const tailLimit = 50; // Max 50 rader tail buffer
@@ -390,15 +395,22 @@ export class LiveOrchestrator {
   private scopeLocks: Map<string, number> = new Map();
   private vfsNotifier: BatchedVFSNotifier;
   
-  // Callback to push audio/status back to UI
   public onAudioChunk?: (base64Audio: string) => void;
   public onInterrupted?: () => void;
   public onWorkerStatusChange?: (status: WorkerStatus[]) => void;
+  public onTerminalStream?: (stream: ReadableStream<string>) => void;
 
   constructor() {
     this.worker2 = new WorkerAgent(2);
     this.worker3 = new WorkerAgent(3);
     this.vfsNotifier = new BatchedVFSNotifier(this);
+    
+    // Route terminal streams from workers up to the orchestrator
+    const routeTerminal = (stream: ReadableStream<string>) => {
+      if (this.onTerminalStream) this.onTerminalStream(stream);
+    };
+    this.worker2.onTerminalStream = routeTerminal;
+    this.worker3.onTerminalStream = routeTerminal;
   }
 
   private broadcastWorkerStatus() {

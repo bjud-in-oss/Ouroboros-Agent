@@ -7,6 +7,7 @@ import * as driveService from './services/driveService';
 import { mcpService } from './services/mcpService';
 import MemoryPanel from './components/MemoryPanel';
 import FocusPanel from './components/FocusPanel';
+import { TerminalPanel } from './components/TerminalPanel';
 import { Terminal, Trash2, Send, Cpu, HardDrive, Download, Cloud, LogIn, Bug, Wrench, Plug, Mic, MicOff } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -42,6 +43,8 @@ const App: React.FC = () => {
   const [mockTask, setMockTask] = useState("");
   const [mockFiles, setMockFiles] = useState("app-data.json");
   
+  const [terminalStream, setTerminalStream] = useState<ReadableStream<string> | null>(null);
+  
   const chatEndRef = useRef<HTMLDivElement>(null);
   const hasCheckedGithub = useRef(false);
 
@@ -73,6 +76,11 @@ const App: React.FC = () => {
     // Subscribe to Orchestrator HUD events
     orchestrator.onWorkerStatusChange = (statuses) => {
       setWorkerStatuses([...statuses]);
+    };
+
+    orchestrator.onTerminalStream = (stream) => {
+      // Create new state reference to trigger re-render
+      setTerminalStream(stream);
     };
   }, []);
 
@@ -628,18 +636,26 @@ const App: React.FC = () => {
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-hidden p-6 relative">
-            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 pointer-events-none"></div>
-            
-            {activeTab === 'memory' ? (
-                <div className="h-full animate-in fade-in duration-300">
-                    <MemoryPanel memory={memory} />
-                </div>
-            ) : (
-                <div className="h-full animate-in fade-in duration-300">
-                    <FocusPanel focus={focus} />
-                </div>
-            )}
+        <div className="flex-1 flex flex-col min-h-0">
+          {/* Top Half: Memory & Focus */}
+          <div className="flex-1 overflow-hidden p-6 relative min-h-0">
+              <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 pointer-events-none"></div>
+              
+              {activeTab === 'memory' ? (
+                  <div className="h-full animate-in fade-in duration-300">
+                      <MemoryPanel memory={memory} />
+                  </div>
+              ) : (
+                  <div className="h-full animate-in fade-in duration-300">
+                      <FocusPanel focus={focus} />
+                  </div>
+              )}
+          </div>
+          
+          {/* Bottom Half: Terminal */}
+          <div className="h-[35%] min-h-64 shrink-0 border-t border-zinc-800">
+             <TerminalPanel stream={terminalStream} />
+          </div>
         </div>
 
       </div>
