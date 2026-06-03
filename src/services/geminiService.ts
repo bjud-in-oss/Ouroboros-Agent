@@ -1,5 +1,4 @@
 import { GoogleGenAI, Type, Schema, Content } from "@google/genai";
-// Force sync trigger 3
 import { LongTermMemory, FocusLog } from "../types";
 import { readFile, createFile, ensureFolderExists, saveState } from "./driveService";
 import { mcpService } from "./mcpService";

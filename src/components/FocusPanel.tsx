@@ -1,5 +1,4 @@
 import React from 'react';
-// Force sync trigger 2
 import { FocusLog } from '../types';
 import { Activity, ListTodo, GitCommit } from 'lucide-react';
 
