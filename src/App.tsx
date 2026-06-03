@@ -639,7 +639,7 @@ const App: React.FC = () => {
         <div className="flex-1 flex flex-col min-h-0">
           {/* Top Half: Memory & Focus */}
           <div className="flex-1 overflow-hidden p-6 relative min-h-0">
-              <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 pointer-events-none"></div>
+              <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-5 pointer-events-none"></div>
               
               {activeTab === 'memory' ? (
                   <div className="h-full animate-in fade-in duration-300">
