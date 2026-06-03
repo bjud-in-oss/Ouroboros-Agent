@@ -1,7 +1,11 @@
+/* SYNC FIX */
 import { GoogleGenAI, Type, Schema, Content } from "@google/genai";
 // Force sync trigger 4
+/* SYNC FIX */
 import { LongTermMemory, FocusLog } from "../types";
+/* SYNC FIX */
 import { readFile, createFile, ensureFolderExists, saveState } from "./driveService";
+/* SYNC FIX */
 import { mcpService } from "./mcpService";
 
 const apiKey = process.env.API_KEY || '';

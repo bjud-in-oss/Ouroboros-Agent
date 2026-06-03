@@ -1,3 +1,4 @@
+/* SYNC FIX */
 import { LongTermMemory, FocusLog } from './types';
 
 export const INITIAL_MEMORY: LongTermMemory = {

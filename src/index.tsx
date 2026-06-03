@@ -1,6 +1,10 @@
+/* SYNC FIX */
 import React from 'react';
+/* SYNC FIX */
 import ReactDOM from 'react-dom/client';
+/* SYNC FIX */
 import './index.css';
+/* SYNC FIX */
 import App from './App';
 
 const rootElement = document.getElementById('root');

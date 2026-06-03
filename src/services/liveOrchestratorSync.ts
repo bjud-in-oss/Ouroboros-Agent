@@ -1,9 +1,15 @@
+/* SYNC FIX */
 import { GoogleGenAI, Modality, Type, FunctionDeclaration, LiveServerMessage } from "@google/genai";
 // Force sync trigger for liveOrchestrator
+/* SYNC FIX */
 import { mcpService } from "./mcpService";
+/* SYNC FIX */
 import { walManager } from "./walManager";
+/* SYNC FIX */
 import { aarmGate } from "./aarmGate";
+/* SYNC FIX */
 import { AppData } from "../types";
+/* SYNC FIX */
 import { getWorkspaceKernel, WasmContainerEnv } from "./workspaceKernel";
 
 const apiKey = import.meta.env.VITE_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || '';

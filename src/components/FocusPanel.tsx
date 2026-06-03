@@ -1,5 +1,8 @@
+/* SYNC FIX */
 import React from 'react';
+/* SYNC FIX */
 import { FocusLog } from '../types';
+/* SYNC FIX */
 import { Activity, ListTodo, GitCommit } from 'lucide-react';
 
 interface Props {
