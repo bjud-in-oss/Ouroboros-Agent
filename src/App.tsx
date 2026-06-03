@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-// Force sync trigger 1
 import { INITIAL_MEMORY, INITIAL_FOCUS } from './constants';
 import { LongTermMemory, FocusLog, ChatMessage, AppData } from './types';
 import { processInteraction } from './services/geminiService';
