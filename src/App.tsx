@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { INITIAL_MEMORY, INITIAL_FOCUS } from './constants';
 import { LongTermMemory, FocusLog, ChatMessage, AppData } from './types';
-import { processInteraction } from './services/geminiService';
-import { orchestrator, WorkerStatus } from './services/liveOrchestrator';
-import * as driveService from './services/driveService';
-import { mcpService } from './services/mcpService';
-import MemoryPanel from './components/MemoryPanel';
-import FocusPanel from './components/FocusPanel';
-import { TerminalPanel } from './components/TerminalPanel';
+import { processInteraction } from './services_v2/geminiService';
+import { orchestrator, WorkerStatus } from './services_v2/liveOrchestrator';
+import * as driveService from './services_v2/driveService';
+import { mcpService } from './services_v2/mcpService';
+import MemoryPanel from './components_v2/MemoryPanel';
+import FocusPanel from './components_v2/FocusPanel';
+import { TerminalPanel } from './components_v2/TerminalPanel';
 import { Terminal, Trash2, Send, Cpu, HardDrive, Download, Cloud, LogIn, Bug, Wrench, Plug, Mic, MicOff } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -58,7 +58,7 @@ const App: React.FC = () => {
        console.warn("SharedArrayBuffer transfer requires self.crossOriginIsolated. Workspace Kernel cannot boot in this iframe.");
        return;
     }
-    import('./services/workspaceKernel').then(({ getWorkspaceKernel }) => {
+    import('./services_v2/workspaceKernel').then(({ getWorkspaceKernel }) => {
        console.log("Pre-warming Workspace Kernel...");
        getWorkspaceKernel().catch(err => {
          console.error("Failed to pre-warm Workspace Kernel:", err);
@@ -97,7 +97,7 @@ const App: React.FC = () => {
         const latestSha = data.sha;
         
         if (latestSha && latestSha !== memory.last_known_github_sha) {
-           const wakeUpMsg = `[SYSTEM WAKE-UP TRIGGER: Ditt DNA (källkod) har uppdaterats på GitHub till commit SHA: ${latestSha}. Vänligen använd ditt verktyg \`readGitHubCode\` för att läsa \`services/geminiService.ts\` och se vilka nya förmågor The Architect har gett dig. Uppdatera sedan din förståelse i dina Context Capsules, och anropa slutligen \`updateKnownGithubSha("${latestSha}")\` för att bekräfta att du förstår din nya kropp.]`;
+           const wakeUpMsg = `[SYSTEM WAKE-UP TRIGGER: Ditt DNA (källkod) har uppdaterats på GitHub till commit SHA: ${latestSha}. Vänligen använd ditt verktyg \`readGitHubCode\` för att läsa \`services_v2/geminiService.ts\` och se vilka nya förmågor The Architect har gett dig. Uppdatera sedan din förståelse i dina Context Capsules, och anropa slutligen \`updateKnownGithubSha("${latestSha}")\` för att bekräfta att du förstår din nya kropp.]`;
            
            // Simulate user message indicating the system wake-up to not wait for user input
            setMessages(prev => [...prev, { role: 'user', content: wakeUpMsg, timestamp: Date.now() }]);
