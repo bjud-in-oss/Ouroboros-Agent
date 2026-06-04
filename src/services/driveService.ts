@@ -4,7 +4,7 @@ import { AppData } from '../types';
 import { INITIAL_MEMORY, INITIAL_FOCUS } from '../constants';
 
 // Fallback ID to ensure GIS never fails due to missing env var
-const ENV_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const ENV_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const FALLBACK_CLIENT_ID = '765827205160-ft7dv2ud5ruf2tgft4jvt68dm7eboei6.apps.googleusercontent.com';
 const CLIENT_ID = ENV_CLIENT_ID && ENV_CLIENT_ID.length > 5 ? ENV_CLIENT_ID : FALLBACK_CLIENT_ID;
 
@@ -75,11 +75,19 @@ export const loadGoogleScripts = (callback: () => void) => {
  */
 export const authenticate = (): Promise<void> => {
   return new Promise((resolve, reject) => {
-    if (!tokenClient) return reject('Google Scripts not loaded');
+    if (!tokenClient) return reject(new Error('Google Scripts not loaded'));
     
+    // Add a timeout for local dev where origin might not be whitelisted causing silent failure
+    const tm = setTimeout(() => {
+        console.warn("Authentication callback did not fire. Is the origin authorized in Google Cloud Console?");
+        // We do not reject here immediately because the user might just be slow to click 'Consent', 
+        // but we leave this warning in console.
+    }, 15000);
+
     tokenClient.callback = async (resp: any) => {
+      clearTimeout(tm);
       if (resp.error) {
-        reject(resp);
+        return reject(resp);
       }
       resolve();
     };

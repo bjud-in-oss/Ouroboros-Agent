@@ -45,7 +45,7 @@ export const processInteraction = async (
  currentMemory: LongTermMemory,
  currentFocus: FocusLog,
  onMemoryMutation?: (newMemory: LongTermMemory) => Promise<void>,
- modelName: string = "gemini-flash-latest"
+ modelName: string = "gemini-2.5-flash"
 ): Promise<{
    response: string;
    newMemory: LongTermMemory;

@@ -30,7 +30,7 @@ const App: React.FC = () => {
   // --- DEBUG BRIDGE END ---
 
   // --- State ---
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-flash-latest');
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
   const [mcpUrl, setMcpUrl] = useState<string>('http://localhost:3001/sse');
   const [mcpStatus, setMcpStatus] = useState<'Disconnected' | 'Connecting' | 'Connected'>('Disconnected');
   const [memory, setMemory] = useState<LongTermMemory>(INITIAL_MEMORY);
@@ -372,19 +372,21 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-full bg-[#09090b] text-zinc-300 font-sans overflow-hidden relative">
+    <div className="flex flex-col h-screen w-full bg-[#09090b] text-zinc-300 font-sans overflow-hidden">
       
       {needsNewTab && (
-        <div className="absolute top-0 left-0 right-0 bg-red-900/90 text-red-100 px-6 py-2 text-sm z-50 flex items-center justify-between shadow-md border-b border-red-800 backdrop-blur-sm">
+        <div className="bg-red-900/90 text-red-100 px-6 py-2 text-sm flex-none flex items-center justify-between shadow-md border-b border-red-800">
            <div className="flex items-center gap-2">
              <span>⚠️ <strong>WebContainer Blocked:</strong> This application requires a cross-origin isolated context to run the Workspace Kernel (WASM).</span>
            </div>
            <span className="opacity-80">Please open this preview in a new tab to continue.</span>
         </div>
       )}
+
+      <div className="flex flex-1 overflow-hidden">
       
       {/* Left Sidebar: Chat Interface */}
-      <div className={`w-1/3 flex flex-col border-r border-zinc-800 bg-[#0c0c0e] ${needsNewTab ? 'pt-10' : ''}`}>
+      <div className={`w-1/3 flex flex-col border-r border-zinc-800 bg-[#0c0c0e]`}>
         
         {/* Header */}
         <div className="h-16 border-b border-zinc-800 flex items-center px-6 gap-3 select-none justify-between">
@@ -557,6 +559,7 @@ const App: React.FC = () => {
                     onChange={(e) => setSelectedModel(e.target.value)}
                     className="bg-zinc-800 border border-zinc-700 text-zinc-300 rounded px-1.5 py-0.5 focus:outline-none focus:border-indigo-500"
                 >
+                    <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
                     <option value="gemini-pro-latest">gemini-pro-latest</option>
                     <option value="gemini-flash-latest">gemini-flash-latest</option>
                     <option value="gemini-flash-lite-latest">gemini-flash-lite-latest</option>
@@ -598,7 +601,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Right Content: Memory & Focus Dashboard */}
-      <div className={`flex-1 flex flex-col bg-[#09090b] ${needsNewTab ? 'pt-10' : ''}`}>
+      <div className={`flex-1 flex flex-col bg-[#09090b]`}>
         
         {/* Toolbar */}
         <div className="h-16 border-b border-zinc-800 flex items-center justify-between px-6 bg-[#09090b]">
@@ -670,6 +673,7 @@ const App: React.FC = () => {
         </div>
 
       </div>
+    </div>
     </div>
   );
 };

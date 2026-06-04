@@ -6,6 +6,12 @@ const netlifyTomlContent = `[build]
   publish = "dist"
   command = "npm run build"
 
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cross-Origin-Embedder-Policy = "require-corp"
+    Cross-Origin-Opener-Policy = "same-origin"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
@@ -20,6 +26,12 @@ try {
   fs.writeFileSync('public/_redirects', redirectsContent);
   console.log('✅ public/_redirects skapad.');
   
+  const _headersContent = `/*
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Opener-Policy: same-origin`;
+  fs.writeFileSync('public/_headers', _headersContent);
+  console.log('✅ public/_headers skapad.');
+
   fs.writeFileSync('netlify.toml', netlifyTomlContent);
   console.log('✅ netlify.toml skapad.');
 } catch (err) {
