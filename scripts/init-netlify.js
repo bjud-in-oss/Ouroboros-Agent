@@ -10,7 +10,7 @@ const netlifyTomlContent = `[build]
   for = "/*"
   [headers.values]
     Cross-Origin-Embedder-Policy = "credentialless"
-    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Opener-Policy = "same-origin-allow-popups"
 
 [[redirects]]
   from = "/*"
@@ -28,7 +28,7 @@ try {
   
   const _headersContent = `/*
   Cross-Origin-Embedder-Policy: credentialless
-  Cross-Origin-Opener-Policy: same-origin`;
+  Cross-Origin-Opener-Policy: same-origin-allow-popups`;
   fs.writeFileSync('public/_headers', _headersContent);
   console.log('✅ public/_headers skapad.');
 
