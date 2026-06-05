@@ -163,6 +163,11 @@ export const processInteraction = async (
             name: "readGitHubCode",
             description: "Read code from GitHub repo using file path.",
             parameters: { type: Type.OBJECT, properties: { filePath: { type: Type.STRING } }, required: ["filePath"] }
+        },
+        {
+            name: "shell_exec",
+            description: "Executes a shell command inside the browser's local Workspace Kernel (WebContainer).",
+            parameters: { type: Type.OBJECT, properties: { command: { type: Type.STRING } }, required: ["command"] }
         }
     ];
 
@@ -267,6 +272,10 @@ export const processInteraction = async (
                         content = content.substring(0, 15000) + "\n\n...[SYSTEM WARNING: FILE CONTENT TRUNCATED DUE TO COGNITIVE LIMITS.]";
                     }
                     result = { success: true, content };
+                } else if (call.name === 'shell_exec') {
+                    const args = call.args as any;
+                    // TODO: Koppla samman med liveOrchestrator / Terminal Panel i nästa steg
+                    result = { status: "queued", command: args.command };
                 } else {
                     const mcpResult = await mcpService.executeTool(call.name, call.args);
                     result = { success: true, content: mcpResult };
