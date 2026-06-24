@@ -1,95 +1,31 @@
-# ARCHITECTURE_CAPSULE_MEMORY
-## Ouroboros 2.0: Live-First Hierarkisk Minneshantering & Kognitiv Hygien
+# ARCHITECTURE_CAPSULE_MEMORY.md
+> **Kategori:** Kognitiv Hygien, Hierarkisk Minneshantering & Cerebral Compaction
+> **Miljö:** Ouroboros Agent OS (3x gemini-3.1-flash-live, Google Drive)
+> **Syfte:** Definiera hur agenternas minne hanteras över tre lager för att förhindra kognitiv utspädning . Kapseln dikterar hur W1 och W2:s brusiga sandlåde-experiment asynkront destilleras till rena insikter, och hur W3 (Barnmorskan) förlikar dessa till långtidsminnet (Tier 2) .
 
-**Dokumentstatus:** Aktiv Arkitekturritning  
-**Miljö:** WebSocket Live-First (Strömmande), Root Repo med Session Resumption  
-**Syfte:** Fastställa en vattentät hierarkisk minneshantering för att eliminera Model Entropy, stabilisera agentens identitet, och hantera tillstånd under parkering.
+## 0. Executive Summary (Analys)
+När tre parallella `gemini-3.1-flash-live`-modeller opererar samtidigt genereras massiva mängder kognitivt brus (terminal-loggar, tester, Veto-debatter). Utan kognitiv hygien sprängs kontextfönstret snabbt. Denna kapsel skrotar mekanisk trunkering ("Truncation Shield") till förmån för asynkron minneskomprimering (Cerebral Compaction) . Ur den naturliga friktionen mellan W1 och W2 extraheras endast rena insikter, vilka W3 säkerställer förlikas och sparas i Google Drive (Tier 2) . 
 
----
+## 0.1 Begrepp och Ordlista
+* **Tier 0 (Immutable Genetic Core):** Oföränderligt "DNA". Kärnidentiteten för systemet och de tre arbetarna. Injiceras vid sessionens start och får aldrig raderas eller skrivas över .
+* **Tier 1 (Ephemeral Working Memory):** Arbetsminnet inuti den aktiva WebSocket-strömmen . Innehåller det pågående "kladdandet" från W1 och W2 i deras sandlådor. Extremt flyktigt.
+* **Tier 2 (Persistent Semantic Ledger):** Det permanenta arkivet på Google Drive . Innehåller skarpa koder, `AGENT_MEMORY.md`, `CURRENT_FOCUS.md` och inkapslade historiker.
+* **Cerebral Compactor (The Scribe):** En asynkron bakgrundsprocess som utvärderar Tier 1 när det närmar sig maxkapacitet, filtrerar bort skräp, och destillerar en kompakt sanning .
+* **Eval-Driven Memory (EDM):** Ett kvalitetsfilter. Minnen får enbart sparas i Tier 2 om den underliggande uppgiften överlevde den naturliga friktionen och Veto-protokollet .
 
-## 1. Den Strömmande Verkligheten (Live-First)
+## 1. Minnets Tre Lager och Arbetarnas Roller
+I Ouroboros är minnet en levande, filtrerande organism där arbetarna förhåller sig olika till de tre lagren .
+* **W1 & W2 i Tier 1:** När W1 skissar på visionen framåt och W2 kör tester/kraschanalyser bakåt, fylls deras Tier 1-minne omedelbart. Deras kontext är fylld av tillfällig, nödvändig friktion.
+* **W3 (Barnmorskan) i Tier 2:** W3 observerar planeringen. När W3 orkestrerar pånyttfödelsen (Cykel 4) är det W3 som formulerar de varaktiga minneskapslarna och uppdaterar Lager 3-filerna på Google Drive, så att endast en *renare skapelse* bevaras för framtiden.
 
-I och med övergången från asynkrona REST-anrop till **Live-First (WebSockets)** befinner sig Ouroboros i ett ständigt strömmande tillstånd. Råtext, audio, videoframes och systemhändelser (verktygsanrop) avlöser varandra i realtid. 
+## 2. Kognitiv Komprimering (Anti-Entropy Pruning)
+För att skydda systemet mot *Knowledge Entropy* (att minnesgrafen kollapsar av skräpdata) tillämpas följande filtrering :
+1. **Tröskel:** När Tier 1 närmar sig 70 % av kontextfönstret (eller vid parkering) triggas *Cerebral Compactor* .
+2. **EDM-Filtrering:** Systemet utvärderar vad som faktiskt hände. Gick koden igenom Veto-granskningen av W1 och W2?
+3. **Hindsight Notes:** Om en återvändsgränd nåddes och systemet tvingades försonas, skapas asynkront en "Hindsight Note" i minnet (t.ex. "Strategi X misslyckades på grund av en port-krock") . 
+4. **Injektion:** Den brusiga historiken rensas ur strömmen och den kompakta JSON-insikten injiceras i botten av agentens minne som en ny baslinje .
 
-Denna arkitektur tvingar fram en minneshantering som inte bara är textbaserad, utan *tidskritisk* och *tillståndsmedveten*. Agentens identitet och arbetsminne måste separeras logiskt, annars riskerar systemet en kognitiv överbelastning (kollaps av kontextfönstret) eller identitetsdrift när det strömmande fönstret fylls.
-
----
-
-## 2. Hierarkisk Minnesarkitektur (Tier 0 - Tier 2)
-
-För att garantera kognitiv hygien delas agentens minne in i tre strikt isolerade lager.
-
-### Tier 0: Immutable Genetic Core (Identitetsfryspunkten)
-**Syfte:** Fastställa agentens orubbliga syfte och arbetsmetodik innan någon session initieras.
-* **Funktion:** Detta är "System Instruction"-blocket som injiceras exakt när WebSocket-anslutningen öppnas (bootstrap). 
-* **Restriktioner:** Det är **skrivskyddat**. Agenten kan under inga omständigheter skriva över sin Tier 0. Den innehåller det "Vatikaniska" regelverket (ex. *Du modifierar aldrig kod utan att skapa en WAL-händelse, Du utvärderar alltid sanningar innan de sparas*).
-* **Livscykel:** Initieras 1 gång per session. Följer med vid varje Session Resumption.
-
-### Tier 1: Ephemeral Working Memory (Cerebral Stream)
-**Syfte:** Hantera nuvarande operationer, pågående samtal och strömmande verktygsexekvering.
-* **Funktion:** Den aktiva strömmen av händelser inuti den öppna WebSocket-sessionen.
-* **Livscykel:** Flyktigt. Detta minne ackumuleras snabbt. När kontextfönstret når en förutbestämd gräns (t.ex. 60 % kapacitet), eller när agenten ska parkeras, utlöses **Cerebral Compaction** (se avsnitt 3) som tömmer Tier 1 och flyttar destillatet till Tier 2.
-
-### Tier 2: Persistent Semantic Ledger (Eval-Driven Memory / EDM)
-**Syfte:** Långtidslagring, kunskapsgraf och kontextkapslar sparade på Google Drive (eller Root Repo).
-* **Funktion:** Det semantiska arkivet. Här lagras enbart verifierade sanningar, atomiska arkitekturhistoriker och kodbas-snapshots. 
-* **Skyddsmekanism (Eval-Driven):** En sanning skrivs aldrig direkt till Tier 2 från Tier 1. Innan komprimerat minne flyttas från Tier 1 till Tier 2, utvärderas det av en oberoende mikrogren (EDM-validering) för att säkerställa att inga kognitiva hallucinationer sipprar ner i arkivet.
-
----
-
-## 3. Minneskomprimering & Gallring (Anti-Entropy Pruning)
-
-När Ouroboros bearbetar massiva mängder live-data måste vi aktivt förhindra brus. Truncation Shield (yxan) är borttagen, vi arbetar nu med destillation.
-
-### 3.1 Cerebral Compactors (Bakgrundsprocessen)
-Istället för att bara radera äldre delar av WebSocket-strömmen, agerar en bakgrundsprocess (en tyst asynkron funktion) som en komprimator.
-1.  **Tröskel uppnådd:** När Tier 1 passerar X antal tokens/frames.
-2.  **Snapshot-extraktion:** Systemet begär en "Sammanfattande Kapsel" av de senaste N-interaktionerna.
-3.  **Destillation:** Compactor-prompten extraherar *enbart*:
-    * Arkitektoniska beslut tagna.
-    * Filer som modifierats.
-    * Nyinlärda domänsanningar.
-4.  **Injektion:** Rå-historiken rensas ur Tier 1 (sessionen startas om/resumas med en rensad logg) och ersätts av den komprimerade JSON-kapseln som en `system_context`-händelse.
-
-### 3.2 Anti-Entropy Pruning
-En dedikerad rutin går igenom Tier 2 (Google Drive-arkivet) varje gång agenten bootas från en parkerad status.
-* **Konflikthantering:** Om två komprimerade kapslar innehåller motstridiga sanningar (t.ex. "Fil X ligger i mapp A" vs "Fil X är borttagen"), tillämpar gallringen en hierarkisk tidsstämpling för att radera den äldre/förlegade regeln. Detta förhindrar *Model Entropy* där agenten blir schizofren av motsägelsefull historik.
-
----
-
-## 4. Parkering & Session Resumption (Root Repo)
-
-Eftersom vi använder Ouroboros som ett Root Repo måste agenten kunna "parkeras" för att spara API-kvoter. Detta måste göras utan att orsaka en "Split-Brain" mellan den aktiva sessionen och den lokala/moln-baserade sandlådan.
-
-### 4.1 Write-Ahead Log (WAL) Protokollet
-Innan agenten kopplas från (WebSocket stängs ner):
-1.  **Atomiska Händelser:** Varje enskilt kodändringsbeslut i Tier 1 måste registreras som en WAL-händelse (Write-Ahead Log) i IndexedDB *innan* det appliceras i koden/E2B.
-2.  **Flushing:** Vid parkering stängs WebSocketen ner. Compactor-processen kör en sista körning. Resultatet och alla oapplicerade WAL-händelser sparas som en `session_state.json` på Google Drive.
-3.  **Död Sandlåda:** E2B- eller WASM-sandlådan kan nu dö eller pausas.
-
-### 4.2 Session Resumption (Uppvaknandet)
-När agenten väcks upp igen:
-1.  Systemet initierar WebSocket och injicerar **Tier 0** (Identity Freeze).
-2.  Ouroboros hämtar `session_state.json` (Tier 2/WAL) från Google Drive.
-3.  Ouroboros tillämpar alla händelser i loggen på den nystartade sandlådan (E2B) för att bygga upp exakt samma fysiska filtillstånd som vid parkeringen.
-4.  Den komprimerade kognitiva kapseln injiceras som den första händelsen i WebSocket-strömmen. Agenten "vaknar" i exakt samma sinnesstämning och med exakt samma kontext, helt utan brus från föregående sessioner.
-
----
-
-### Exempel på en Komprimerad Kognitiv Kapsel (JSON):
-
-```json
-{
-  "timestamp": "2026-05-29T15:30:00Z",
-  "active_task": "Implementera PWA Service Worker",
-  "verified_truths": [
-    "iOS stöder ej Wake Lock API, använd manuell audio gain.",
-    "Root Repo hanterar WAL för state-sync."
-  ],
-  "pending_wal_events": [
-    {"action": "update_file", "path": "/src/audioHandler.ts", "status": "pending_flush"}
-  ]
-}
-```
-
-Genom denna arkitektur kan Ouroboros leva i det strömmande bruset (Live-First), arbeta i flyktiga miljöer (E2B/WASM), och parkeras utan att någonsin förlora sin kärnidentitet eller lida av "Split-Brain".
+## 3. Minnets Återuppståndelse (Wake-Up Sync)
+Eftersom Ouroboros ständigt grenar ut sig fraktalt kan agenter "parkeras" genom *Session Resumption* för att spara hårdvaruresurser .
+* Innan agenten kopplas från sparas dess pågående tankar via Write-Ahead Log (WAL) i IndexedDB .
+* När agenten väcks upp igen uppstår ingen "Split-Brain". Systemet laddar in Tier 0, spelar upp WAL-händelserna, och injicerar de senaste `[SYSTEM_NOTIFICATION]`-sanningarna från Tier 2, varpå agenten fortsätter exakt där den stannade men fullt medveten om W3:s senaste förlikningar .

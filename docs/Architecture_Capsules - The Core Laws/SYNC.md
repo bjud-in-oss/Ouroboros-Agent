@@ -1,134 +1,61 @@
-# ARCHITECTURE_CAPSULE_SYNC
-## Ouroboros 2.0: Federerad Agentsynk, OCC & Write-Ahead Logging
+# ARCHITECTURE_CAPSULE_SYNC.md
 
-**Dokumentstatus:** Aktiv Arkitekturritning  
-**Miljö:** Live-First (WebSockets), Federerat Agentnätverk (Root Repo), Asynkron JSON-messaging  
-**Syfte:** Fastställa det tekniska ramverket för att lösa Split-Brain, hantera skrivkrockar i delade miljöer, och införa en 100 % feltolerant Write-Ahead Log (WAL) för millisekundexakt session-resumption.
+> **Kategori:** Transaktionssäkerhet, OCC, WAL & Kognitiv Rebase
 
----
+> **Miljö:** Ouroboros Agent OS (3x gemini-3.1-flash-live, IndexedDB, Google Drive)
 
-## 1. Probleminventering: "Split-Brain" i ett Federerat Nätverk
+> **Syfte:** Definiera det stenhårda dataskyddet som eliminerar "Split-Brain"-scenarier och oavsiktliga överskrivningar. Kapseln dikterar hur W3 (Barnmorskan) säkert skriver till Google Drive, hur systemet hanterar datakrockar genom Kognitiv Rebase, och hur Write-Ahead Log (WAL) garanterar millisekundexakt kraschåterhämtning .
 
-När Ouroboros övergår från en ensam agent till ett federerat "Root Repo" där flera agents (Workers) och människor arbetar mot samma Google Drive-filsystem parallellt, uppstår det klassiska distribuerade systemproblemet: **Write-Write Conflicts (Split-Brain)**.
+## 0. Executive Summary (Analys)
 
-1. Agent A läser `app.ts` för att fixa en bugg.
-2. Under tiden Agent A utvärderar koden (kognitiv loop tar 10 sekunder) ändrar en människa manuellt i `app.ts` på Google Drive.
-3. Agent A skickar sin ovetande skrivning till Drive och **skriver över** människans arbete.
+När tre parallella arbetare (W1, W2, W3) agerar i realtid krävs ett ofelbart skyddsnät för den skarpa koden (Lager 2 och 3). Denna kapsel definierar systemets synkroniseringslager. Istället för att pessimistiskt låsa filer – vilket skulle döda den samtidiga, naturliga friktionen – använder systemet Optimistic Concurrency Control (OCC) . Endast W3 har skrivrättigheter till produktion (Cykel 4), och varje handling loggas atomärt i en lokal Write-Ahead Log (IndexedDB) innan den skickas till molnet . Om en krock uppstår kraschar inte applikationen, utan genomgår en *Kognitiv Rebase* där systemet förlikas med den nya verkligheten .
 
-Lösningen är **Optimistic Concurrency Control (OCC)**, implementerad direkt i `driveService.ts`.
+## 0.1 Begrepp och Ordlista
 
----
+* **OCC (Optimistic Concurrency Control):** Ett låsfritt system mot Google Drive. Varje filversion får en unik stämpel (E-Tag). W3:s skrivningar avvisas (`HTTP 412`) om filen har hunnit ändras i bakgrunden .
 
-## 2. Optimistic Locking via Google Drive ETags
+* **Kognitiv Rebase (Wake-Up Sync):** Systemets andliga och tekniska läkningsprocess vid en datakrock. Istället för att tvinga igenom sin vilja, pausar systemet, laddar ner den nya sanningen, och utvärderar hur (och om) den egna lösningen ska fogas samman med verkligheten .
 
-Google Drive-API:et har inbyggt stöd för `ETag` (Entity Tag) / Revision IDs. Ett ETag är en sträng som representerar den exakta versionen av en fil vid en specifik tidpunkt.
+* **WAL (Write-Ahead Log):** Händelsestyrd logg i webbläsarens IndexedDB . Koden markeras `PENDING` innan nätverksanropet görs, och `FLUSHED` när Google Drive bekräftat .
 
-### 2.1 Implementering i `driveService.ts`
-För att skydda data måste vi tillämpa strikt etag-validering vid varje mutationsbegäran (`PATCH` eller `PUT`):
+* **The Phoenix Protocol:** Systemets förmåga till självåterhämtning . Om en Live-anslutning dör ("The Dead Socket Trap"), återskapas sessionen med hjälp av WAL utan att agenterna drabbas av amnesi .
 
-1. **Vid Read (`GET`):** Ouroboros hämtar filen från Drive och sparar det associerade `etag`-värdet i det lokala IndexedDB-cachen tillsammans med filinnehållet.
-2. **Vid Update (`PATCH`):** När agenten vill spara koden, tvingar `driveService.ts` fram skickandet av HTTP-headern `If-Match: "<ETAG_VALUE>"`.
+## 1. Optimistic Concurrency Control (ETags) och W3:s Skrivrättighet
 
-**Typ-specifikation för `driveService.ts`:**
+Eftersom W1 och W2 utforskar framåt och bakåt i sina isolerade sandlådor (Cykel 1–3), är det uteslutande W3 som muterar Google Drive (produktionsmiljön) under Cykel 4. 
 
-```typescript
-interface DriveFileContext {
-  fileId: string;
-  content: string;
-  etag: string; // Kritisk för OCC
-}
+* För att garantera att W3 inte oavsiktligt skriver över människans arbete, bifogas alltid HTTP `If-Match`-headers med den senast kända E-Tagen när W3 begär en sparning . 
 
-async function updateFileOptimistic(fileId: string, newContent: string, currentEtag: string) {
-  const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
-    method: 'PATCH',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'If-Match': currentEtag, // Optimerat lås
-      'Content-Type': 'text/plain'
-    },
-    body: newContent
-  });
+* Detta innebär att den naturliga friktionen får verka ostört inuti systemet, medan Google Drive fungerar som den ultimata, objektiva sanningen.
 
-  if (response.status === 412) {
-    throw new Error('PRECONDITION_FAILED'); // Krock upptäckt!
-  }
-  
-  return await response.json(); // Returnerar nytt etag
-}
-```
+## 2. Hantering av Datakrockar (Kognitiv Rebase)
 
----
+Om W3 försöker spara en förlikad lösning, men Google Drive returnerar `412 Precondition Failed` (någon har ändrat koden externt):
 
-## 3. Transaktionsfel & "Kognitiv Rebase" (412 Precondition Failed)
+* **System Interrupt:** Skrivningen avbryts omedelbart och markeras som misslyckad i systemets WAL. Ingen data korrumperas .
 
-Om `updateFileOptimistic` returnerar `412 Precondition Failed` betyder det att filen modifierats av någon annan sedan agenten senast läste den. Här får systemet absolut inte krascha, och agenten får inte radera sin logik. Den måste utföra en asynkron **Wake-Up Sync**.
+* **Den Naturliga Friktionens Återkomst:** Istället för en hård krasch startar en "Wake-Up Sync". W3 hämtar omedelbart den nya filen (den nya sanningen) .
 
-### Flödesschema för Wake-Up Sync (Rebase)
+* **Kognitiv Rebase:** W1 och W2 kallas tillbaka från sina sandlådor för att granska den nya koden. Om de kan foga samman sin tidigare integrerade lösning med den nya sanningen, görs det (likt en `git rebase`). Är det en djup, strukturell krock stannar systemet upp (Att förlikas) och skickar en asynkron Nudge till användaren för att be om mänsklig vägledning .
 
-1. **412 Precondition Failed triggas:** `driveService.ts` fångar felet och avbryter nätverksanropet. Inget data korrumperas på Drive.
-2. **System Interrupt:** Agentens aktiva WebSocket-loop meddelas via ett asynkront event (`SYNC_COLLISION`).
-3. **Fetch New Truth:** Agenten tvingas ladda ner den absolut senaste versionen av filen från Google Drive och dess nya ETag.
-4. **Kognitiv Rebase:** 
-   - Agentens systemprompt tilldelas en "Diff-Kapsel" som visar skillnaden mellan agentens egen version och molnets version.
-   - Ouroboros bedömer (Eval-Driven) om dess ursprungliga plan fortfarande är giltig:
-     - *Scenario A (Ingen konflikt):* Människan lade bara till en kommentar. Agenten regenererar sin uppdatering (patchar sin kod på den nya) och försöker igen med det nya ETaget.
-     - *Scenario B (Direkt konflikt):* Människan skrev om exakt den funktion agenten jobbade på. Agenten kastar sin skrivning, skapar en WAL-logg (om avbrytande) och frågar användaren via chatten hur de ska gå vidare.
+## 3. Write-Ahead Log (WAL) och The Phoenix Protocol
 
----
+Googles Live API-anslutningar (WebSockets) kan dö på grund av inaktivitet ("The Dead Socket Trap") eller nätverksförlust . Ouroboros överlever detta genom sin WAL i IndexedDB .
 
-## 4. Händelsestyrd Write-Ahead Log (WAL) i IndexedDB
+* **Logga Först (PENDING):** Så fort W1 och W2 godkänner W3:s kod (Veto Protocol), läggs händelsen (ex. `WRITE_FILE`) i IndexedDB med statusen `PENDING` .
 
-För att Ouroboros ska kunna agera i flyktiga miljöer (WASM, E2B) med stenhårda tidsgränser måste varje tanke och skrivning kunna frysas ner och återupptas omedelbart. "WAL" är den atomiska logg som gör session resumption möjlig på millisekunden.
+* **Materialisering:** Skrivningen skickas till Drive.
 
-### 4.1 Livscykeln för en atomisk WAL-händelse
+* **Bekräftelse (FLUSHED):** Vid `HTTP 200 OK` uppdateras loggen atomärt till `FLUSHED` .
 
-Istället för att mutera state direkt (Direct Mutation), läggs en avsikt in i WAL:en *innan* nätverksanropet går till Drive.
+* **Phoenix Protocol (Återuppståndelsen):** Om systemet kraschar innan `FLUSHED` uppnås, kommer systemet vid nästa uppstart att läsa av `PENDING`-händelserna. W1, W2 och W3 återuppstår då (Session Resumption) på exakt samma millisekund, laddar in sina bevarade tankesignaturer, och slutför det avbrutna arbetet som om inget hade hänt .
 
-1. **Action Intent:** Agenten beslutar sig för att uppdatera `style.css`.
-2. **Append to WAL:** Webbläsaren sparar omedelbart ett JSON-event i `IndexedDB` (betydligt stabilare och större än LocalStorage).
-3. **Flush (Execution):** Systemet utför uppdateringen mot Google Drive (med OCC).
-4. **Commit:** Om Drive accepterar (status 200), markeras händelsen i WAL:en som `flushed`.
+Med denna kapsel på plats har vi nu en fulländad arkitektur bestående av fyra centrala fundament:
 
-### 4.2 Specifikation: WAL Event JSON Schema
+PARADIGM.md (De tre arbetarna, Fraktalerna och Teologin)
 
-```json
-{
-  "eventId": "evt_948a72b1-11x2-43fa...",
-  "timestamp": "2026-05-30T19:42:10.500Z",
-  "type": "FILE_MUTATION",
-  "payload": {
-    "fileId": "1aB2cD3eF4gH5iJ6kL7mN8oP9",
-    "path": "/frontend/style.css",
-    "diff": "@@ -15,4 +15,5 @@\\n body {\\n   margin: 0;\\n+  background: #000;\\n }",
-    "expectedEtag": "\"v1_xyz\""
-  },
-  "status": "pending_flush" 
-}
-```
+MCP.md (Sandlådorna och Barnmorskan W3)
 
-### 4.3 Crash Recovery (Återuppvaknandet)
+ASYNC_DELEGATION.md (Mjuka tidsgränser och Nervsystemet)
 
-Om strömmen går, webbläsaren kraschar, eller E2B-containern får en timeout (efter 1 timme), är data aldrig förlorat:
-
-1. När användaren öppnar Ouroboros igen och bootar upp Root Repo.
-2. Systemet läser av `IndexedDB` och letar efter alla events där `status === 'pending_flush'`.
-3. Systemet utför en **Replay** av dessa loggar. Den kollar varje ETag mot Google Drive och flushar framåt i tiden tills state är 100 % synkat.
-4. Först därefter öppnas WebSocket-anslutningen till Gemini och agenten startas med en absolut oförorenad, millisekundexakt uppfattning av verkligheten.
-
----
-
-## 5. Resilience Architecture (Backoff, Jitter & Retry Buckets)
-
-I vår händelsestyrda WebSocket-miljö måste exekveringsmotorn kunna hantera transienta nätverksfel, `HTTP 500 Backend Errors` samt `HTTP 429 Too Many Requests` utan att överbelasta Google Workspace eller Nylas API-infrastruktur.
-
-1. **Capped Exponential Backoff med Jitter:** Om ett anrop misslyckas, beräknas nästa väntetid exponentiellt men med ett stenhårt maxtak (Capped). För att förhindra **Thundering Herd-problemet** adderas **Jitter** (en slumpmässig tidsvariation).
-2. **Local Token Bucket för Retries:** För att förhindra att en felande agent går in i en evig omförsöksloop, implementeras en lokal Token Bucket för omförsök.
-3. **Single-Level Retry Rule:** Omförsök (Retries) får **endast** exekveras på en enda nivå i arkitekturen (React-klientens exekveringshärva).
-
----
-
-## 6. Klientdriven Congestion Control (ATB & AATB)
-
-1. **Adaptive Token Bucket (ATB):** Varje Worker-agent kör en intern klientsides-algoritm. Vid lyckade API-anrop ökar agenten sin token-genereringshastighet. Vid `HTTP 429` halveras hastigheten omedelbart.
-2. **Assisted Adaptive Token Bucket (AATB):** I det federerade nätverket delar agenterna asynkront med sig av sin telemetri gällande förbrukade kvoter över WebSocket-bussen.
-3. **Dataminimering via Partial Responses:** Varje `GET`-anrop i `driveService.ts` tvingas använda URL-parametern `fields`.
+SYNC.md (WAL, ETags och Kognitiv Rebase)
