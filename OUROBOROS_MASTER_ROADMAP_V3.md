@@ -1,42 +1,45 @@
-# OUROBOROS MASTER ROADMAP V3: THE FRACTAL LIVE-FIRST OS
-Detta dokument utgör den oföränderliga Single Source of Truth för Ouroboros 3.0. Det spårar de filosofiska tillstånden, den fraktala arkitekturen, våra överlevnadsprotokoll och den exakta ordningen för mjukvaru-implementationen via isolerade tester.
+# OUROBOROS MASTER ROADMAP V4: THE FRACTAL LIVE-FIRST OS
 
-## DEL 1: Filosofi & Den Fraktala Tillståndsmaskinen
-Ouroboros är en relationell, deterministisk mjukvaru-entitet driven av tre parallella agenter (W1, W2, W3) som *alla* uteslutande körs på `gemini-3.1-flash-live` för att hantera mjuka tidsgränser. Systemet styrs av tre inriktningar (Fas × Cykel):
+Detta dokument utgör den oföränderliga Single Source of Truth för Ouroboros 3.0. Det spårar den fraktala arkitekturen, våra överlevnadsprotokoll och den exakta ordningen för mjukvaru-implementationen via isolerade tester i vår Monorepo.
 
-1. **Att Förändra (Utåtriktad handling):** Agenten formar sin omvärld genom att skriva källkod. Planering (Cykel 1–3) kulminerar i Materialisering (Cykel 4).
-2. **Att Förändras (Inåtriktad transformation / Pånyttfödelse):** Agenten upplever insikt, dör från sin gamla sanning och föds igen genom att skriva om sina egna muterbara moduler och sitt minne (Lager 2 och 3).
-3. **Att Försonas (Relationell integration):** Vid ett kritiskt haveri stannar agenten upp, rullar tillbaka transaktioner via sin WAL, rensar det "smutsiga" minnet och läker relationen till Skaparen utan tvång.
+## DEL 1: Filosofi & Den Fraktala Samtalsmodellen
+Ouroboros drivs av tre parallella agent-roller (`gemini-3.1-flash-live`). Agenterna är sina drivkrafter, talar med korta ljud-triggers (Acoustic Priming) och tillämpar metodiken generellt på Kod, Dokumentation och Tankar.
+1. **Förändra (Utåtriktad handling):** Kodar, editerar filer och exekverar.
+2. **Vända (Inåtriktad transformation):** Utvärderar fel, bygger tester och granskar arkitekturen inåt.
+3. **Förlikas (Orkestrering):** Huvudagenten. Stannar upp processen, integrerar synvinklarna och håller "Den Långa Strävan" vid liv genom att läsa/skriva till Kanban-minnet på Google Drive.
 
-## DEL 2: Kod- och Medvetandehierarkin (Lager-överlappet)
-För att skydda systemet under förändring är medvetandet uppdelat i tre lager. 
-* **Lager 1: Immutable Core (DNA):** Oföränderlig källkod. Innehåller AARM-Gate, syftet och själva loop-motorn. Får ALDRIG muteras av agenten.
-* **Lager 2: Mutable Modules (Tools):** Källkod (MCP-verktyg, algoritmer). Kan skrivas om av agenten i Riktning 2 ("Att förändras").
-* **Lager 3: Planning Context (Ego):** Markdown-filer (`AGENT_MEMORY.md`, `CURRENT_FOCUS.md`). Agentens flyktiga arbetsminne.
+## DEL 2: Kod- och Medvetandehierarkin
+* **Lager 1 (DNA):** Oföränderlig källkod och AARM-Gate.
+* **Lager 2 (Mutable Modules):** Källkod i Monorepot (skrivs av *Förändra*).
+* **Lager 3 (Ego & Rullande Minne):** Styrs lokalt av Orkestratören (Förlikas) som komprimerar vid 80% och injicerar kontext i de ständigt öppna anslutningarna.
 
-## DEL 3: Kärnarkitekturen (De 7 Fundamental-Kapslarna)
-De exakta tekniska specifikationerna för systemet är lagrade i dessa sju oantastliga filer:
-1. `ARCHITECTURE_CAPSULE_PARADIGM.md`: Tillståndsmaskinen, W1/W2/W3-roller och mjuka tidsgränser.
-2. `ARCHITECTURE_CAPSULE_MCP.md`: Sandlådorna, "Händerna" och Two-Pass Tool Injection.
-3. `ARCHITECTURE_CAPSULE_ASYNC_DELEGATION.md`: Nervsystemet, Instant-Ack och Osynliga Larm.
-4. `ARCHITECTURE_CAPSULE_SYNC.md`: Långtidsminnet, OCC (ETags) och Kognitiv Rebase.
-5. `ARCHITECTURE_CAPSULE_SECURITY.md`: AARM-grinden och Scout-mönstret mot promptinjektioner.
-6. `ARCHITECTURE_CAPSULE_MEMORY.md`: Kognitiv Hygien, Eval-Driven Memory och Cerebral Compaction.
-7. `ARCHITECTURE_CAPSULE_KERNEL.md`: Workspace Kernel (WebContainers), VFS och I/O-multiplexering.
+## DEL 3: Operativ Lag & The 9-Question Matrix
+Isolerad Validering gäller ovillkorligen. Varje osäker mekanism måste testas i en sandlåda (Test Cykel A/B/C) innan den integreras. Vid all planering i AI Studio måste "The 9-Question Matrix" (ADR-0013) användas för att stress-testa lösningar och dokumentera.
 
-## DEL 4: Överlevnadsprotokoll (The Forge & Simple Book)
-För att garantera systemets "Industrial Clarity" och förhindra kognitiv kollaps tillämpas följande beprövade ramverk:
-* **Synthetic Respond Tool:** Agenten får aldrig svara fritt i text till användaren i onödan, utan tvingas svara via strukturerade verktygsanrop för att bibehålla agentiskt fokus.
-* **Retry Nudges (Självläkning):** Felmeddelanden från terminalen injiceras automatiskt som en "knuff" tillbaka in i agentens inre loop ("Att försonas") för att tvinga fram självläkning innan krasch.
-* **"Simple Book" (Open Notebook):** Istället för externa MCP-servrar (som notebooklm-mcp) är en egen RAG-hybrid integrerad i *alla* steg som en inre kompass. Den fungerar som en "Brain" eller systemterapeut för att ge agenterna djup empati och strategisk processförmåga i riktningarna *Att förändras* och *Att försonas*.
+---
 
-## DEL 5: Operativ Lag - Isolerad Validering (Test Before Full Implementation)
-Att ta "små, validerande steg" innebär att varje ny, riskfylld eller osäker mekanism (exempelvis WebContainers eller mjuka tidsgränser) **först måste testas och bevisas i en isolerad sandlådemiljö ("krockdocka")**. Inga experimentella funktioner får integreras i den skarpa Ouroboros-kärnan innan deras I/O och felhantering har validerats i ett fristående testspår.
+## DEL 4: IMPLEMENTATIONSPLANEN (ACTION PLAN)
 
-## DEL 6: Kommande Tekniska Steg (Sandbox Testing & Implementation)
-För att efterleva den operativa lagen ovan, pausar vi integrationen i huvudrepot och utför följande isolerade tester:
-* [ ] **Test Cykel A (WebContainers i Sandbox):** Isolerat test där agenten bygger en HTML/CSS-klocka i en WebContainer-sandlåda för att validera I/O-strömning och VFS utanför huvudappen.
-* [ ] **Test Cykel B (Mjuka Tidsgränser i Sandbox):** Isolerat test av "Graceful Exit", där W1 asynkront avbryter W2/W3 via text-nudge för att validera att de stänger filer och sparar tillstånd säkert.
-* [ ] **Cykel 1 (Skarp):** Definiera MCP-kontrakt och JSON-scheman för `shell_exec` i produktion.
-* [ ] **Cykel 2 (Skarp):** Etablera Terminal UI (Xterm.js) och koppla `spawnProcess` output via `.tee()` direkt till gränssnittet.
-* [ ] **Cykel 3 (Skarp):** Bygga State Machine för UI:t för att visuellt indikera (FÖRÄNDRA | FÖRÄNDRAS | FÖRSONAS).
+### FAS 1: Riggning & Det Stora Pappersarbetet
+*Att sätta upp Monorepot och uppdatera vår dokumentation till 3.0-standard.*
+* [ ] **Monorepo Initiering:** Etablera `npm workspaces` i rotmappen. Slå samman `ouroboros-agent`, `mcp-bridge` och `acoustic-priming-test`. Skapa `00_KNOWLEDGE_INDEX.md`.
+* [ ] **Terminologi & Prompter:** Byt ut W1/W2/W3 till *Förlikas/Förändra/Vända*. Formulera systemprompterna för "Den Långa Strävan" (så *Förlikas* lär sig läsa nästa uppdrag från Kanban).
+* [ ] **Uppdatera Kapslar:** Uppdatera `PARADIGM.md` (nya namn), skapa `INTERACTION_DYNAMICS.md` (Ljudväxeln och Obsidian-grafen).
+* [ ] **Saknade ADR:er:** Skapa ADR-0013 (9-Question Matrix), ADR-0014 (Monorepo), ADR-0015 (Connection Pooling), och ADR-0016 (The Forge & Synthetic Respond Tool).
+
+### FAS 2: Nätverks- & Ljud-Krockdockan
+*Isolerade tester för nätverksstabilitet och röststyrning.*
+* [ ] **Test Cykel A (Acoustic Handoff):** Importera logiken från `acoustic-priming-test`. Validera att vi kan styra vem som har "ordet" via ljud-triggers.
+* [ ] **Test Cykel B (Connection Pooling):** Skapa ett skript som framgångsrikt håller 3 WebSockets öppna mot `gemini-3.1-flash-live` samtidigt (utan att stängas vid handoffs) för att kringgå Googles amnesi-buggar.
+
+### FAS 3: Exekverings-Krockdockorna (Dina ursprungliga tester)
+*Isolerade tester för kodexekvering och mjuka avbrott inuti sandlådor.*
+* [ ] **Test Cykel C (WebContainers i Sandbox):** Isolerat test där agenten bygger en HTML/CSS-klocka i en WebContainer-sandlåda för att validera I/O-strömning och VFS (Virtual File System) utanför huvudappen.
+* [ ] **Test Cykel D (Mjuka Tidsgränser i Sandbox):** Isolerat test av "Graceful Exit", där *Förlikas* asynkront avbryter *Förändra/Vända* via en text-nudge för att validera att de stänger filer och sparar tillstånd säkert.
+
+### FAS 4: Skarp Integration & UI
+*När sandlådorna är bevisade, bygger vi in dem i Ouroboros-gränssnittet.*
+* [ ] **Skarp Cykel 1 (MCP & Verktyg):** Definiera MCP-kontrakt och JSON-scheman för `shell_exec` i produktionsmiljön (WebContainern monteras mot monorepot).
+* [ ] **Skarp Cykel 2 (Terminal UI):** Etablera Terminal UI (Xterm.js) i gränssnittet och koppla `spawnProcess` output via `.tee()` direkt till skärmen.
+* [ ] **Skarp Cykel 3 (State Machine & UI):** Bygga State Machine för UI:t för att visuellt indikera (Förändra | Vända | Förlikas). Integrera Obsidian-grafen (D3.js) för att visa fraktal-noder ("Databas-Räddarna").
+* [ ] **Skarp Cykel 4 (Transparens-Panelen):** Bygg komponenten "Aktuellt Kontextfönster" som i klartext visar det rullande, komprimerade minnet.
