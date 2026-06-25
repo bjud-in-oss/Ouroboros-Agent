@@ -1,38 +1,39 @@
 # ARCHITECTURE_CAPSULE_ASYNC_DELEGATION.md
-> **Kategori:** Nervsystemet, Asynkron Delegering & Den Kognitiva Tidslinjen
+> **Kategori:** Nervsystemet, Connection Pooling & Den Akustiska Tidslinjen
 > **Miljö:** Ouroboros Agent OS (3x gemini-3.1-flash-live, WebSocket-buss)
-> **Syfte:** Att definiera hur orkestratören hanterar nätverkets asynkrona tidslinje, förhindrar att Live-anslutningarna fryser vid tunga verktygsanrop, och hur kontext och tidsgränser injiceras dynamiskt för att bibehålla den naturliga friktionen.
+> **Syfte:** Att definiera hur orkestratören hanterar nätverkets asynkrona tidslinje, förhindrar att Live-anslutningarna fryser vid tunga verktygsanrop, och hur mick-routing och text-injektioner styrs utan att tappa den naturliga friktionen.
 
 ## 0. Executive Summary (Analys)
-Eftersom Ouroboros uteslutande drivs av `gemini-3.1-flash-live` , uppstår ett arkitektoniskt hinder: 3.1-modellen tillåter inte asynkrona (`NON_BLOCKING`) verktygsanrop nätverksmässigt. Om W1, W2 eller W3 kör ett terminalkommando som tar 30 sekunder, fryser deras WebSocket helt . 
+Eftersom Ouroboros uteslutande drivs av `gemini-3.1-flash-live`, uppstår ett nätverksmässigt hinder: 3.1 Live-modellen tillåter inte asynkrona (`NON_BLOCKING`) verktygsanrop i sitt protokoll. Om *Förändra* kör ett terminalkommando (`shell_exec`) som tar 30 sekunder inuti WebContainern, fryser hela dess WebSocket-ström synkront. 
 
-Denna kapsel löser tidsparadoxen genom "The Asynchronous Ticket Loop" (Instant-Ack). Orkestratören fångar anropet, returnerar ett omedelbart kvitto (`QUEUED`) för att låsa upp agenten, och utför arbetet i bakgrunden . Resultat, kraschlarm och mjuka tidsgränser injiceras därefter tillbaka in i den öppna strömmen via `send_realtime_input` , vilket gör systemet blixtsnabbt och djupt reaktivt.
+Denna kapsel löser tidsparadoxen genom "The Asynchronous Ticket Loop" (Instant-Ack) kombinerat med en fast **Connection Pool**. Vi förbjuder formellt dynamisk stängning och "parking" av fysiska sockets (vilket bevisats radera modellens minne pga. serverbuggar). Istället hålls exakt 3 anslutningar permanent öppna (en för *Förlikas*, en för *Förändra*, en för *Vända*). Synkron blockering kringgås genom att orkestratören omedelbart returnerar ett fejk-kvitto (`QUEUED`), vilket håller röstströmmen aktiv medan exekveringen sker asynkront i bakgrunden.
 
 ## 0.1 Begrepp och Ordlista
-* **The Asynchronous Ticket Loop (Instant-Ack):** Ett fejk-kvitto (`{"status": "QUEUED"}`) som skickas från Orkestratören till agenten så att agentens ström omedelbart låses upp medan WebContainern arbetar.
-* **System Intercept (Technical Nudge):** Asynkrona textinjektioner via `send_realtime_input` formaterade som systemmeddelanden (t.ex. `[SYSTEM_OVERRIDE_CRITICAL]`). Används för att förmedla fel, resultat eller signalera mjuka tidsgränser .
-* **Lazy-Loaded Rationale (Cerebral Sync):** För att undvika minnesmättnad dumpas aldrig massiv källkod direkt i Live-strömmen. Istället sparas koden på VFS, medan endast en kort `Rationale_Log` (motiveringen till *varför* koden skrevs) injiceras i agentens minne.
-* **Agent Parking (Session Resumption):** Att spara en agents kognitiva tillstånd och stänga dess WebSocket-kabel för att frigöra en av systemets tre hårdvarulinjer vid fraktal utgrening .
+* **Connection Pooling:** Arkitekturen där tre fasta WebSocket-kablar hålls öppna kontinuerligt mot Live API:et för att förhindra HTTP 429-fel och eliminera den minnesförlust som uppstår vid nätverks-återanslutningar.
+* **The Asynchronous Ticket Loop (Instant-Ack):** Ett omedelbart JSON-svar (`{"status": "QUEUED"}`) från orkestratören till agenten som ögonblickligen låser upp Live-strömmen medan WebContainerns kärna arbetar i bakgrunden.
+* **The Acoustic Handoff Protocol:** Systemet för röststyrning och turordning mellan agenterna i connection poolen. Istället för en kaotisk gruppchatt är endast en mikrofon öppen som default (enligt Kanban-kön). Överlämningar sker via korta ljudsignaler och verbala triggers.
+* **Acoustic Priming:** Korta, taktiska ljud-triggers (t.ex. ett ping eller en kort ljudsignal) som agenter använder för att väcka varandras uppmärksamhet och indikera rollbyten i UI:t utan att slösa tokens på att läsa upp råkod högt.
+* **System Intercept (Technical Nudge):** Asynkrona textinjektioner via `send_realtime_input` formaterade som systemmeddelanden (t.ex. `[SYSTEM_NOTIFICATION]`). Används av *Förlikas* för att skjuta in felrapporter, bakgrundsresultat eller lokalt städade minnesbaslinjer i de öppna kablarna.
 
 ## 1. The Asynchronous Ticket Loop (Att hantera tiden)
-För att den samtidiga, naturliga friktionen mellan W1 (Vision) och W2 (Sorg/Test) ska fungera i sina sandlådor, måste de kunna arbeta parallellt utan att fastna i varandras nätverksköer.
+För att den samtidiga, naturliga friktionen mellan *Förändra* (Vision/Handling) och *Vända* (Sorg/Felsökning) ska fungera i sina respektive sandlådor, måste de kunna arbeta parallellt utan att blockera nätverket.
 
 När en arbetare anropar `shell_exec`:
-1. **Intercept:** Orkestratören fångar anropet innan det går till WebContainern.
-2. **Instant-Ack:** Orkestratören returnerar omedelbart `FunctionResponse: { status: "QUEUED", job_id: "...", directive: "Vänta på bakgrundsjobbet. Gissa inget resultat." }`.
-3. **Upplåsning:** Agenten accepterar biljetten och förblir vaken/reaktiv i sin pågående loop.
+1. **Intercept:** Orkestratören i vår React-app fångar verktygsanropet innan det skickas till WebContainern.
+2. **Instant-Ack:** Orkestratören returnerar omedelbart `FunctionResponse: { status: "QUEUED", directive: "Vänta på bakgrundsjobbet. Gissa inget resultat." }`.
+3. **Upplåsning:** Agenten accepterar biljetten och förblir helt vaken, lyhörd och reaktiv i sin ström.
+4. **Asynkron Injektion:** När bakgrundsjobbet i WebContainern är klart, fångar orkestratören upp dess exit-kod och slutrader. Detta injiceras asynkront som en text-nudge via `send_realtime_input` direkt in i agentens feed: `[SYSTEM_NOTIFICATION: Bakgrundsjobb slutfört. Exit 0. Resultat: ...]`.
 
-## 2. Technical Nudges och Mjuka Tidsgränser (Soft Deadlines)
-Eftersom `clientContent` är spärrat från att användas mitt i pågående 3.1-sessioner , måste orkestratören kommunicera med agenterna via det asynkrona kommandot `send_realtime_input({text: "..."})` .
+## 2. Akustisk Handoff & Mikrofon-Routing
+Eftersom tre öppna mikrofoner och högtalare samtidigt skulle orsaka total ljudkollaps och barge-in-kaos, styrs hårdvaran strikt via vår applikationslogik:
+* **Default-läget (En i taget):** Du pratar som standard alltid med *Förlikas* (Roten). *Förändra* och *Vända* har sina mikrofoner låsta via `automaticActivityDetection: false`.
+* **Inbjudan och Rum:** När ett kodproblem kräver deras expertis, meddelar *Förlikas* detta verbalt och lämnar över ordet. Orkestratören mutear *Förlikas* mikrofon och öppnar röstkanalen för *Förändra* och *Vända*.
+* **Filler Messages ("Um"):** För att maskera den nätverkslatens som uppstår när mickar routas om och förhindra att användaren avbryter i fel ögonblick, spelar UI:t upp korta, naturliga tänkljud ("Um", "Låt mig kontrollera filen..."). 
+* **Tjuvlyssna i Maskinrummet:** Du hör och pratar alltid med den undergrupp eller roll som har stafettpinnen enligt Kanban-planeringen. Men du kan i din Obsidian-trädvy manuellt klicka dig in i en bakgrundsnod och välja att koppla in ditt headset för att lyssna på *Förändra* och *Vända*:s korta, militäriska akustiska triggers ("Kod exekverad", "Kör input") under felsökning.
 
-* **Leverans av resultat:** När sandlådan är klar skjuts `Rationale_Log` in i strömmen via en Nudge: `[SYSTEM_NOTIFICATION] Bakgrundsjobb 123 klart. RATIONALE: Valde port 8080 pga krock.` .
-* **Larm och Krascher:** Om ett byggskript kraschar skjuter orkestratören in ett larm som triggar modellens inbyggda *barge-in*, vilket får agenten att direkt byta fokus till felsökning .
-* **Mjuka Tidsgränser:** W1 (Barnmorskan/Samordnaren) skickar löpande tidsmedvetenhet via Nudges: *"Ni har 45 sekunder kvar att iterera"*. Detta skapar en mjuk deadline som tvingar den fraktala loopen att avrunda organiskt istället för att stängas av brutalt .
-
-## 3. Fraktal Utgrening och Agent Parking (Session Resumption)
-Systemet är hårdvarubegränsat till exakt tre (3) samtidiga Live API-anslutningar. Ouroboros 3.0 tillämpar fraktal exekvering.
-
-* Om W2 (Att vända) inser att den behöver starta en djupgående diagnostikprocess som kräver asynkron tid, och inga kablar är lediga, tillämpas **Agent Parking** .
-* Orkestratören sparar W2:s `SessionResumptionUpdate`-handle och stänger W2:s WebSocket tillfälligt .
-* Den frigjorda kabeln används för att spinna upp diagnostik-processen .
-* När underprocessen är klar, väcks W2 genom att anslutningen återupptas (`Resume`) med dess Handle . En *Wake-Up Sync* skjuts in via en Nudge för att synkronisera agenten med den nya sanningen som underprocessen tagit fram.
+## 3. Det Fraktala Trädet och Dynamiska Egon
+När systemet grenar ut sig i fraktalen startas inga nya fysiska WebSockets (vilket skulle spränga Free Tier-taket på max 3 sessioner). Istället återanvänds de tre fasta kablarna i vår connection pool genom **Dynamiska Egon**:
+* Om *Förändra* behöver starta en inre debatt för ett isolerat underproblem, antar den rollen som orkestratör (*Förlikas*-funktionen) för den specifika undernoden.
+* Undergruppen får ett dynamiskt, mänskligt uppdragsnamn (t.ex. "Regex-Kirurgerna") som ritas ut som en ny nod i D3.js Obsidian-grafen.
+* Orkestratören skickar en hård text-uppdatering via `send_realtime_input` som formaterar om underarbetarnas DNA och injicerar deras hyper-specialiserade mikrouppdrag lokalt. Underarbetarna är helt stumma för omvärlden och kommunicerar internt i ren text via tysta JSON-verktyg, vilket eliminerar "viskleken" och sparar tokens.
+* När undergruppen nått konsensus, skickas text-syntesen uppåt i trädet till huvud-Triaden, och *Förlikas* slår på din primära mikrofon igen för att rapportera det färdiga resultatet i Cockpiten.
