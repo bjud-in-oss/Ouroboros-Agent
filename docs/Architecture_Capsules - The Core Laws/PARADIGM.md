@@ -33,7 +33,7 @@ Triaden drivs **uteslutande av `gemini-3.1-flash-live`** för att möjliggöra r
 * **Andlig Dynamik:** Vänder blicken inåt. Utvärderar med sund sorg och mjukhet varför den gamla vägen misslyckades. Den hanterar inte lösningar framåt, utan denna mylla utgör själva friktionen och motsättningen till *Förändra*.
 * **Teknisk Handling:** Arbetar i en egen isolerad sandlåda (Cykel 1-3). Modellerar självkritik, bygger TDD-tester, kör Vitest och identifierar återvändsgränder i programmet utan att försöka lösa problemet på nytt.
 
-### Förlikas: Att Förlikas (Barnmorskan / Sammanfatta & Läka)
+### Förlikas: Att Förlikas (Barnmorskan / Medla & Läka)
 * **Andlig Dynamik:** Acceptansen i klyftan och själva pånyttfödelsen. Observerar *Förändra*:s vision och *Vända*:s felanalys. Ur denna förlikning låter den systemet födas på nytt som en renare skapelse så att försoningen blir komplett.
 * **Teknisk Handling:** Äger den primära, öppna röstkanalen till användaren. Den har exklusiv tillgång till den skarpa produktionsmiljön. Det är *Förlikas* som ensam utför Cykel 4 (Materialiseringen), rullar tillbaka fel via git-restore vid VETO, genomför "Kognitiv Rebase" och uppdaterar källkoden till Write-Ahead Log (WAL).
 
